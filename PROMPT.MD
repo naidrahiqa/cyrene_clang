@@ -27,7 +27,10 @@ cyrene-clang/
 │   ├── patch.sh                  # Apply patches from patches/
 │   └── package.sh                # Compress + generate clang-version.txt
 ├── patches/                      # Custom LLVM patches (format-patch style)
-└── docs/SKILL.md                 # Full project reference
+├── docs/
+│   ├── SKILL.md                  # Full project reference
+│   ├── feature-general.md        # General feature dev prompt
+│   └── feature-specific.md       # Feature-specific prompts (LTO, PGO, dll)
 ```
 
 ## How You Work

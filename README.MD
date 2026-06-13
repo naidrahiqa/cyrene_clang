@@ -67,6 +67,10 @@ cyrene-clang/
 │   ├── package.sh                # Compress + generate clang-version.txt
 │   └── notify.sh                 # Telegram notification helper
 ├── patches/                      # Custom LLVM patches (format-patch style)
+├── docs/
+│   ├── SKILL.md                  # Full project reference for AI
+│   ├── feature-general.md        # General feature dev prompt template
+│   └── feature-specific.md       # Specific feature prompts (LTO, PGO, dll)
 ├── PROMPT.MD                     # OpenCode AI system prompt
 ├── README.MD
 └── .gitignore
@@ -131,6 +135,15 @@ TARGETS=AArch64;ARM;X86
 TARBALL_SIZE=350M
 DOWNLOAD_URL=https://github.com/naidrahiqa/cyrene_clang/releases/download/.../cyrene-clang.tar.zst
 ```
+
+## Feature Development
+
+For developers adding new features to CyreneClang:
+
+- **[docs/feature-general.md](docs/feature-general.md)** — Template prompt for OpenCode sessions when starting a new feature
+- **[docs/feature-specific.md](docs/feature-specific.md)** — Ready-to-use prompts for specific features (kernel LTO, auto patch sync, multi-stage PGO, compatibility checker)
+
+Paste the relevant prompt into OpenCode at the start of a feature development session.
 
 ## License
 
