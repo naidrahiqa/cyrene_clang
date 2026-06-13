@@ -18,24 +18,31 @@ jobs:
         id: sync
         run: bash scripts/sync-patches.sh
 
-      - name: Create Pull Request
+      - name: Create Pull Request with gh CLI
         if: ${{ steps.sync.outputs.applied > 0 }}
-        uses: peter-evans/create-pull-request@v6
-        with:
-          token: ${{ github.token }}
-          commit-message: "chore: sync ${{ steps.sync.outputs.applied }} stable patch(es)"
-          branch: sync-patches-${{ github.run_number }}
-          delete-branch: true
-          title: "chore: sync ${{ steps.sync.outputs.applied }} stable patch(es)"
-          body: |
-            ## Auto-Synced Stable Patches
+        run: |
+          BRANCH="sync-patches-${{ github.run_number }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add patches/
+          git commit -m "chore: sync ${{ steps.sync.outputs.applied }} stable patch(es)" || true
+          git push origin "$BRANCH"
+
+          gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "chore: sync ${{ steps.sync.outputs.applied }} stable patch(es)" \
+            --body "## Auto-Synced Stable Patches
 
             **Applied**: ${{ steps.sync.outputs.applied }}
             **Skipped**: ${{ steps.sync.outputs.skipped }}
             **Failed**: ${{ steps.sync.outputs.failed }}
 
-            Review and merge if the patches look correct.
-          labels: patches
+            Review and merge if the patches look correct." \
+            --label patches
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - name: No new patches
         if: ${{ steps.sync.outputs.applied == 0 }}
