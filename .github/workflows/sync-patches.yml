@@ -1,0 +1,42 @@
+name: Sync Stable Patches
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * 5'
+
+jobs:
+  sync:
+    name: Sync patches from LLVM stable
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Sync patches
+        id: sync
+        run: bash scripts/sync-patches.sh
+
+      - name: Create Pull Request
+        if: ${{ steps.sync.outputs.applied > 0 }}
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ github.token }}
+          commit-message: "chore: sync ${{ steps.sync.outputs.applied }} stable patch(es)"
+          branch: sync-patches-${{ github.run_number }}
+          delete-branch: true
+          title: "chore: sync ${{ steps.sync.outputs.applied }} stable patch(es)"
+          body: |
+            ## Auto-Synced Stable Patches
+
+            **Applied**: ${{ steps.sync.outputs.applied }}
+            **Skipped**: ${{ steps.sync.outputs.skipped }}
+            **Failed**: ${{ steps.sync.outputs.failed }}
+
+            Review and merge if the patches look correct.
+          labels: patches
+
+      - name: No new patches
+        if: ${{ steps.sync.outputs.applied == 0 }}
+        run: echo "No new patches to sync."

@@ -56,6 +56,25 @@ Add to your kernel `Makefile` or build script:
 KCFLAGS="-mllvm -polly -mllvm -polly-vectorizer=stripmine"
 ```
 
+## Kernel LTO Integration
+
+ThinLTO can dramatically improve kernel performance. Use the helper script to set up the environment:
+
+```bash
+source scripts/kernel-lto.sh [kernel-source-dir]
+
+# Then run your normal kernel make command
+make -j$(nproc) O=out ARCH=arm64 ...
+```
+
+The script:
+- Validates Clang >= 12.0 (required for ThinLTO)
+- Exports `CC=clang`, `LD=ld.lld`, `AR=llvm-ar` with correct `KCFLAGS="-flto=thin"`
+- Warns if kernel < 5.12 (incomplete LTO support)
+- Parses `clang-version.txt` for build metadata
+
+Works both when sourced (`.`) or executed directly.
+
 ## Repository Structure
 
 ```
@@ -65,7 +84,10 @@ cyrene-clang/
 │   ├── build.sh                  # CMake configure + 2-stage PGO build
 │   ├── patch.sh                  # Apply patches from patches/
 │   ├── package.sh                # Compress + generate clang-version.txt
-│   └── notify.sh                 # Telegram notification helper
+│   ├── notify.sh                 # Telegram notification helper
+│   ├── kernel-lto.sh             # Kernel ThinLTO environment helper
+│   ├── sync-patches.sh           # Auto cherry-pick from LLVM stable
+│   └── check-compat.sh           # Compatibility validator
 ├── patches/                      # Custom LLVM patches (format-patch style)
 ├── docs/
 │   ├── SKILL.md                  # Full project reference for AI
@@ -90,6 +112,7 @@ Environment variables:
 |---|---|---|
 | `LLVM_BRANCH` | `main` | LLVM branch or tag to build |
 | `ENABLE_PGO` | `true` | Enable 2-stage PGO build |
+| `PGO_WORKLOAD` | `sqlite` | PGO workload: `sqlite` (fast) or `kernel` (accurate) |
 | `INSTALL_DIR` | `~/toolchains/cyrene` | Where to install the toolchain |
 | `JOBS` | `nproc` | Parallel build jobs |
 
@@ -135,6 +158,52 @@ TARGETS=AArch64;ARM;X86
 TARBALL_SIZE=350M
 DOWNLOAD_URL=https://github.com/naidrahiqa/cyrene_clang/releases/download/.../cyrene-clang.tar.zst
 ```
+
+## Auto Patch Sync
+
+Automatically cherry-pick patches from LLVM stable branches without manual `.patch` file management.
+
+### Config
+
+Edit [`patches/stable-picks.txt`](patches/stable-picks.txt) — one LLVM commit hash per line:
+```
+# Lines starting with # are ignored
+a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0
+```
+
+### Manual Sync
+
+```bash
+bash scripts/sync-patches.sh
+```
+
+### Automated Sync (CI)
+
+The workflow `.github/workflows/sync-patches.yml` runs:
+- **Every Friday** (before Monday's main build)
+- **On demand** via `workflow_dispatch`
+
+It creates a PR with any new patches for review — never pushes directly.
+
+## Compatibility Check
+
+Validate your CyreneClang installation against a kernel tree:
+
+```bash
+# Check toolchain only
+bash scripts/check-compat.sh
+
+# Check toolchain + kernel compatibility
+bash scripts/check-compat.sh ~/kernel/msm-5.15
+```
+
+The script checks:
+- All LLVM tools present in PATH from the same installation
+- Clang version compatibility with kernel (>= 14 for kernel 6.x, >= 12 for LTO)
+- `ld.lld` version matches Clang major version
+- Parses `clang-version.txt` for build metadata
+
+Output: colored summary with **PASS** / **WARN** / **FAIL** and exit codes (0/1/2).
 
 ## Feature Development
 

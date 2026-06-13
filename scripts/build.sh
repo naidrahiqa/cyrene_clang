@@ -10,6 +10,7 @@ BUILD_DIR="${BUILD_DIR:-$(pwd)/build}"
 LLVM_DIR="${LLVM_DIR:-$(pwd)/llvm-project}"
 JOBS="${JOBS:-$(nproc)}"
 ENABLE_PGO="${ENABLE_PGO:-true}"
+PGO_WORKLOAD="${PGO_WORKLOAD:-sqlite}"  # "sqlite" (fast) or "kernel" (accurate)
 
 # Targets: AArch64 (Android), ARM (32-bit compat), X86 (host tools)
 LLVM_TARGETS="AArch64;ARM;X86"
@@ -19,6 +20,7 @@ LLVM_PROJECTS="clang;lld;compiler-rt;polly"
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 log() { echo -e "\n\033[1;36m[CyreneClang]\033[0m $*"; }
+warn() { echo -e "\033[1;33m[WARN]\033[0m $*" >&2; }
 die() { echo -e "\033[1;31m[ERROR]\033[0m $*" >&2; exit 1; }
 
 # ─── Stage 0: Clone LLVM ──────────────────────────────────────────────────────
@@ -74,27 +76,68 @@ stage1_build() {
   export STAGE1_CXX="$s1_install/bin/clang++"
 }
 
-# ─── PGO Profile Collection ───────────────────────────────────────────────────
-collect_profiles() {
-  log "Collecting PGO profiles via lightweight C workload ..."
+# ─── PGO Profile Collection: SQLite ───────────────────────────────────────────
+collect_sqlite() {
+  log "Collecting PGO profiles via SQLite workload ..."
   local profile_dir="$BUILD_DIR/profiles"
   mkdir -p "$profile_dir"
 
-  # Use stage-1 clang to compile a representative workload.
-  # In a real setup, compile a stripped-down kernel tree here.
-  # This lightweight version compiles a set of C files to approximate real usage.
   export LLVM_PROFILE_FILE="$profile_dir/cyrene-%p.profraw"
 
-  # Compile SQLite as a representative C workload (widely used, good coverage)
   local workload_dir="$BUILD_DIR/workload"
   mkdir -p "$workload_dir"
   curl -sSL https://www.sqlite.org/2024/sqlite-amalgamation-3460000.zip \
-    -o "$workload_dir/sqlite.zip"
-  unzip -q "$workload_dir/sqlite.zip" -d "$workload_dir"
+    -o "$workload_dir/sqlite.zip" 2>/dev/null || { warn "SQLite download failed"; return 1; }
+  unzip -q "$workload_dir/sqlite.zip" -d "$workload_dir" 2>/dev/null || { warn "SQLite unzip failed"; return 1; }
 
   "$STAGE1_CC" -O2 -o /dev/null \
     "$workload_dir/sqlite-amalgamation-3460000/sqlite3.c" \
     -lpthread -ldl 2>/dev/null || true
+}
+
+# ─── PGO Profile Collection: Real Kernel ─────────────────────────────────────
+collect_kernel() {
+  log "Collecting PGO profiles via real Android kernel build ..."
+  local profile_dir="$BUILD_DIR/profiles"
+  mkdir -p "$profile_dir"
+
+  export LLVM_PROFILE_FILE="$profile_dir/cyrene-%p.profraw"
+
+  local kernel_dir="$BUILD_DIR/kernel-workload"
+  log "Cloning android-mainline kernel (--depth=1) ..."
+  if ! git clone --depth=1 \
+    https://android.googlesource.com/kernel/common "$kernel_dir" 2>/dev/null; then
+    warn "Kernel clone failed — falling back to SQLite workload"
+    return 1
+  fi
+
+  pushd "$kernel_dir" > /dev/null
+  log "Configuring kernel (defconfig ARCH=arm64) ..."
+  make defconfig ARCH=arm64 CC="$STAGE1_CC" 2>/dev/null || { warn "Kernel defconfig failed"; popd > /dev/null; return 1; }
+
+  log "Building kernel subsystems (drivers/gpu + kernel/) ..."
+  make -j"$JOBS" ARCH=arm64 CC="$STAGE1_CC" \
+    drivers/gpu/ kernel/ 2>/dev/null || \
+    warn "Kernel partial build had warnings (profiles may still be valid)"
+  popd > /dev/null
+
+  log "Cleaning up kernel source (saves ~2GB) ..."
+  rm -rf "$kernel_dir"
+}
+
+# ─── PGO Profile Collection ───────────────────────────────────────────────────
+collect_profiles() {
+  local workload="${PGO_WORKLOAD:-sqlite}"
+  log "Collecting PGO profiles (workload: $workload) ..."
+
+  local profile_dir="$BUILD_DIR/profiles"
+  mkdir -p "$profile_dir"
+
+  if [[ "$workload" == "kernel" ]]; then
+    collect_kernel || collect_sqlite
+  else
+    collect_sqlite
+  fi
 
   # Merge raw profiles into a single .prof file
   log "Merging PGO profiles ..."

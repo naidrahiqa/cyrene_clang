@@ -11,6 +11,9 @@ on:
         description: 'Enable 2-stage PGO build'
         type: boolean
         default: true
+      pgo_workload:
+        description: 'PGO workload type (sqlite=fast, kernel=accurate)'
+        default: 'sqlite'
       release:
         description: 'Publish to GitHub Releases'
         type: boolean
@@ -27,6 +30,7 @@ on:
 env:
   LLVM_BRANCH: ${{ github.event.inputs.llvm_branch || 'main' }}
   ENABLE_PGO: ${{ github.event.inputs.enable_pgo || 'true' }}
+  PGO_WORKLOAD: ${{ github.event.inputs.pgo_workload || 'sqlite' }}
   INSTALL_DIR: ${{ github.workspace }}/toolchain
   BUILD_DIR: ${{ github.workspace }}/build
   LLVM_DIR: ${{ github.workspace }}/llvm-project
