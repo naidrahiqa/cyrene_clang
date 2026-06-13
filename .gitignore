@@ -1,0 +1,12 @@
+build/
+llvm-project/
+toolchain/
+output/
+*.profraw
+*.profdata
+*.prof
+*.tar.zst
+*.tar.gz
+*.zip
+.DS_Store
+Thumbs.db

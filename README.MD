@@ -13,12 +13,13 @@ A custom LLVM/Clang toolchain built for Android kernel compilation — balanced 
 | **Kernel support** | 4.x through 6.x (GKI + legacy trees) |
 | **Auto-sync** | Weekly rebuild from LLVM `main` |
 | **Distribution** | GitHub Releases + `clang-version.txt` manifest |
+| **Telegram notify** | Build status pushed to Telegram channel |
 
 ## Quick Start
 
 ```bash
 # Get the latest manifest
-wget https://raw.githubusercontent.com/YOUR_USER/cyrene-clang/main/clang-version.txt
+wget https://raw.githubusercontent.com/naidrahiqa/cyrene_clang/main/clang-version.txt
 
 # Download the toolchain
 DOWNLOAD_URL=$(grep DOWNLOAD_URL clang-version.txt | cut -d= -f2)
@@ -55,11 +56,27 @@ Add to your kernel `Makefile` or build script:
 KCFLAGS="-mllvm -polly -mllvm -polly-vectorizer=stripmine"
 ```
 
+## Repository Structure
+
+```
+cyrene-clang/
+├── .github/workflows/build.yml   # CI/CD pipeline
+├── scripts/
+│   ├── build.sh                  # CMake configure + 2-stage PGO build
+│   ├── patch.sh                  # Apply patches from patches/
+│   ├── package.sh                # Compress + generate clang-version.txt
+│   └── notify.sh                 # Telegram notification helper
+├── patches/                      # Custom LLVM patches (format-patch style)
+├── PROMPT.MD                     # OpenCode AI system prompt
+├── README.MD
+└── .gitignore
+```
+
 ## Building from Source
 
 ```bash
-git clone https://github.com/YOUR_USER/cyrene-clang
-cd cyrene-clang
+git clone https://github.com/naidrahiqa/cyrene_clang
+cd cyrene_clang
 chmod +x scripts/*.sh
 bash scripts/build.sh
 ```
@@ -84,6 +101,23 @@ Environment variables:
    ```
 3. Push — the workflow auto-triggers on changes to `patches/`.
 
+## Telegram Notifications
+
+The CI pipeline sends build status notifications via Telegram Bot API.
+
+### Setup
+
+1. Create a bot via [@BotFather](https://t.me/botfather) and get the token.
+2. Get your chat/channel ID.
+3. Add secrets to your GitHub repository:
+   - `TELEGRAM_BOT_TOKEN` — your bot token
+   - `TELEGRAM_CHAT_ID` — target chat/channel ID (e.g. `@channelname` or numeric ID)
+
+Notifications are sent on:
+- Build started
+- Build success/failure
+- New release published
+
 ## Manifest Format (`clang-version.txt`)
 
 ```
@@ -95,10 +129,10 @@ PGO=true
 LTO=Thin
 TARGETS=AArch64;ARM;X86
 TARBALL_SIZE=350M
-DOWNLOAD_URL=https://github.com/YOUR_USER/cyrene-clang/releases/download/.../cyrene-clang.tar.zst
+DOWNLOAD_URL=https://github.com/naidrahiqa/cyrene_clang/releases/download/.../cyrene-clang.tar.zst
 ```
 
 ## License
 
-LLVM is licensed under the Apache 2.0 License with LLVM exceptions.  
+LLVM is licensed under the Apache 2.0 License with LLVM exceptions.
 Build scripts in this repo are MIT licensed.

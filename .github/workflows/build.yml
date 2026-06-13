@@ -1,7 +1,6 @@
 name: Build CyreneClang
 
 on:
-  # Manual trigger with options
   workflow_dispatch:
     inputs:
       llvm_branch:
@@ -17,11 +16,9 @@ on:
         type: boolean
         default: true
 
-  # Weekly auto-sync from LLVM main (Monday 00:00 UTC)
   schedule:
     - cron: '0 0 * * 1'
 
-  # Rebuild when patches are updated
   push:
     paths:
       - 'patches/**'
@@ -35,6 +32,8 @@ env:
   LLVM_DIR: ${{ github.workspace }}/llvm-project
   OUTPUT_DIR: ${{ github.workspace }}/output
   RELEASE_TAG: cyrene-${{ github.run_number }}
+  TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+  TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
 
 jobs:
   build:
@@ -45,6 +44,9 @@ jobs:
       # ── Prep ────────────────────────────────────────────────────────────────
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Notify build started
+        run: bash scripts/notify.sh started
 
       - name: Free up disk space
         run: |
@@ -73,8 +75,7 @@ jobs:
         run: chmod +x scripts/*.sh
 
       - name: Run build
-        run: |
-          bash scripts/build.sh
+        run: bash scripts/build.sh
         env:
           JOBS: 4
 
@@ -88,7 +89,7 @@ jobs:
       - name: Show disk usage after build
         run: df -h
 
-      # ── Upload artifact (always, for debugging) ───────────────────────────────
+      # ── Upload artifact ──────────────────────────────────────────────────────
       - name: Upload toolchain artifact
         uses: actions/upload-artifact@v4
         with:
@@ -99,15 +100,6 @@ jobs:
           retention-days: 7
 
       # ── Release ──────────────────────────────────────────────────────────────
-      - name: Commit updated clang-version.txt
-        if: ${{ github.event.inputs.release == 'true' || github.event_name == 'schedule' }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add clang-version.txt
-          git diff --staged --quiet || git commit -m "chore: update clang-version.txt [run #${{ github.run_number }}]"
-          git push
-
       - name: Publish GitHub Release
         if: ${{ github.event.inputs.release == 'true' || github.event_name == 'schedule' }}
         uses: softprops/action-gh-release@v2
@@ -124,22 +116,27 @@ jobs:
 
             ### Integration
             ```bash
-            # Download
             wget $(grep DOWNLOAD_URL output/clang-version.txt | cut -d= -f2)
-
-            # Extract
             tar -I zstd -xf cyrene-clang-*.tar.zst -C $HOME/toolchains/
-
-            # Use in kernel build
             export PATH="$HOME/toolchains/cyrene/bin:$PATH"
             make CC=clang LD=ld.lld AR=llvm-ar ...
-            ```
-
-            ### Manifest
-            ```
-            $(cat clang-version.txt)
             ```
           files: |
             ${{ steps.package.outputs.TARBALL }}
             ${{ env.OUTPUT_DIR }}/clang-version.txt
           make_latest: true
+
+      # ── Notifications ────────────────────────────────────────────────────────
+      - name: Notify build success
+        if: success()
+        run: bash scripts/notify.sh success
+        env:
+          CLANG_VERSION: ${{ steps.package.outputs.CLANG_VERSION }}
+
+      - name: Notify release
+        if: ${{ (github.event.inputs.release == 'true' || github.event_name == 'schedule') && success() }}
+        run: bash scripts/notify.sh release
+
+      - name: Notify build failure
+        if: failure()
+        run: bash scripts/notify.sh failure
