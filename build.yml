@@ -1,0 +1,145 @@
+name: Build CyreneClang
+
+on:
+  # Manual trigger with options
+  workflow_dispatch:
+    inputs:
+      llvm_branch:
+        description: 'LLVM branch or tag (e.g. main, llvmorg-18.1.0)'
+        default: 'main'
+        required: true
+      enable_pgo:
+        description: 'Enable 2-stage PGO build'
+        type: boolean
+        default: true
+      release:
+        description: 'Publish to GitHub Releases'
+        type: boolean
+        default: true
+
+  # Weekly auto-sync from LLVM main (Monday 00:00 UTC)
+  schedule:
+    - cron: '0 0 * * 1'
+
+  # Rebuild when patches are updated
+  push:
+    paths:
+      - 'patches/**'
+      - 'scripts/**'
+
+env:
+  LLVM_BRANCH: ${{ github.event.inputs.llvm_branch || 'main' }}
+  ENABLE_PGO: ${{ github.event.inputs.enable_pgo || 'true' }}
+  INSTALL_DIR: ${{ github.workspace }}/toolchain
+  BUILD_DIR: ${{ github.workspace }}/build
+  LLVM_DIR: ${{ github.workspace }}/llvm-project
+  OUTPUT_DIR: ${{ github.workspace }}/output
+  RELEASE_TAG: cyrene-${{ github.run_number }}
+
+jobs:
+  build:
+    name: Build CyreneClang
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── Prep ────────────────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Free up disk space
+        run: |
+          sudo rm -rf \
+            /usr/share/dotnet \
+            /opt/ghc \
+            /usr/local/share/boost \
+            "$AGENT_TOOLSDIRECTORY" \
+            /usr/local/lib/android \
+            /opt/hostedtoolcache/CodeQL
+          sudo apt-get clean
+          df -h
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake ninja-build python3 git curl unzip \
+            clang lld \
+            libxml2-dev libedit-dev libncurses5-dev \
+            zstd build-essential ca-certificates \
+            binutils-aarch64-linux-gnu
+
+      # ── Build ────────────────────────────────────────────────────────────────
+      - name: Make scripts executable
+        run: chmod +x scripts/*.sh
+
+      - name: Run build
+        run: |
+          bash scripts/build.sh
+        env:
+          JOBS: 4
+
+      # ── Package ──────────────────────────────────────────────────────────────
+      - name: Package toolchain + generate manifest
+        id: package
+        run: bash scripts/package.sh
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+
+      - name: Show disk usage after build
+        run: df -h
+
+      # ── Upload artifact (always, for debugging) ───────────────────────────────
+      - name: Upload toolchain artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cyrene-clang-${{ github.run_number }}
+          path: |
+            ${{ env.OUTPUT_DIR }}/cyrene-clang-*.tar.zst
+            ${{ env.OUTPUT_DIR }}/clang-version.txt
+          retention-days: 7
+
+      # ── Release ──────────────────────────────────────────────────────────────
+      - name: Commit updated clang-version.txt
+        if: ${{ github.event.inputs.release == 'true' || github.event_name == 'schedule' }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add clang-version.txt
+          git diff --staged --quiet || git commit -m "chore: update clang-version.txt [run #${{ github.run_number }}]"
+          git push
+
+      - name: Publish GitHub Release
+        if: ${{ github.event.inputs.release == 'true' || github.event_name == 'schedule' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: "CyreneClang ${{ env.RELEASE_TAG }}"
+          body: |
+            ## CyreneClang — Automated Build
+
+            **LLVM Branch**: `${{ env.LLVM_BRANCH }}`
+            **PGO**: ${{ env.ENABLE_PGO }}
+            **LTO**: ThinLTO
+            **Targets**: AArch64, ARM, X86
+
+            ### Integration
+            ```bash
+            # Download
+            wget $(grep DOWNLOAD_URL output/clang-version.txt | cut -d= -f2)
+
+            # Extract
+            tar -I zstd -xf cyrene-clang-*.tar.zst -C $HOME/toolchains/
+
+            # Use in kernel build
+            export PATH="$HOME/toolchains/cyrene/bin:$PATH"
+            make CC=clang LD=ld.lld AR=llvm-ar ...
+            ```
+
+            ### Manifest
+            ```
+            $(cat clang-version.txt)
+            ```
+          files: |
+            ${{ steps.package.outputs.TARBALL }}
+            ${{ env.OUTPUT_DIR }}/clang-version.txt
+          make_latest: true
