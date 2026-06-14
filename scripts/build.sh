@@ -61,7 +61,8 @@ gen_changelog() {
         name=$(basename "$pf")
         local subj
         subj=$(head -1 "$pf" 2>/dev/null | sed 's/^Subject: //' || echo "")
-        echo "  \xE2\x80\xA2 \`$name\`${subj:+ \u2014 $subj}"
+        local BULLET=$'\xE2\x80\xA2' DASH=$'\xE2\x80\x94'
+        echo "  $BULLET \`$name\`${subj:+ $DASH $subj}"
       done
     fi
   } > "$cl"
