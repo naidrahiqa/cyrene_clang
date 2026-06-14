@@ -328,7 +328,7 @@ cleanup() {
   if [[ $exit_code -ne 0 ]] && [[ -x "$NOTIFY_SCRIPT" ]]; then
     BUILD_DURATION=$(build_duration 2>/dev/null || echo "unknown")
     export BUILD_DURATION ERROR_LOG="${ERROR_LOG:-}" BUILD_STAGE="Build Failed"
-    export ERROR_DUMP_CHAT_ID="${ERROR_DUMP_CHAT_ID:-@naierrordump}"
+    export ERROR_DUMP_CHAT_ID="${ERROR_DUMP_CHAT_ID:-}"
     export ERROR_DUMP_FILE="${ERROR_DUMP_FILE:-$BUILD_DIR/build.log}"
     bash "$NOTIFY_SCRIPT" failure || true
     bash "$NOTIFY_SCRIPT" error_dump || true

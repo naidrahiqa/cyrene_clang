@@ -49,7 +49,7 @@ PACKAGE_SIZE="${PACKAGE_SIZE:-}"
 PATCH_COUNT="${PATCH_COUNT:-0}"
 TARBALL_NAME="${TARBALL_NAME:-}"
 TARGETS="${LLVM_TARGETS:-AArch64;ARM;X86}"
-ERROR_DUMP_CHAT_ID="${ERROR_DUMP_CHAT_ID:-@naierrordump}"
+ERROR_DUMP_CHAT_ID="${ERROR_DUMP_CHAT_ID:-}"
 ERROR_DUMP_FILE="${ERROR_DUMP_FILE:-}"
 
 # Emoji constants using $'...' for proper Unicode byte interpretation
@@ -163,6 +163,7 @@ $E_LINK [View Run #$RUN_NUMBER]($RUN_URL)"
     ;;
 
   error_dump)
+    [[ -z "$ERROR_DUMP_CHAT_ID" ]] && exit 0
     FULL_LOG=""
     if [[ -n "$ERROR_LOG" ]]; then
       FULL_LOG="$ERROR_LOG"
