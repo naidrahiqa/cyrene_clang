@@ -115,8 +115,8 @@ stage1_build() {
     -DLLVM_BUILD_INSTRUMENTED=IR \
     -DLLVM_VP_COUNTERS_PER_SITE=6
 
-  cmake --build "$s1_build" -j"$JOBS"
-  cmake --install "$s1_build"
+  cmake --build "$s1_build" -j"$JOBS" 2>&1 | tee -a "$BUILD_DIR/build.log"
+  cmake --install "$s1_build" 2>&1 | tee -a "$BUILD_DIR/build.log"
 
   export STAGE1_CC="$s1_install/bin/clang"
   export STAGE1_CXX="$s1_install/bin/clang++"
@@ -249,8 +249,8 @@ stage2_build() {
     -DLLVM_PROFDATA_FILE="$PGO_PROF" \
     -DLLVM_ENABLE_PLUGINS=ON
 
-  cmake --build "$s2_build" -j"$JOBS"
-  cmake --install "$s2_build"
+  cmake --build "$s2_build" -j"$JOBS" 2>&1 | tee -a "$BUILD_DIR/build.log"
+  cmake --install "$s2_build" 2>&1 | tee -a "$BUILD_DIR/build.log"
 }
 
 # ─── Simple Build (no PGO) ────────────────────────────────────────────────────
@@ -262,8 +262,8 @@ simple_build() {
     -DLLVM_ENABLE_LTO=Thin \
     -DCOMPILER_RT_ENABLE_LTO=OFF
 
-  cmake --build "$build" -j"$JOBS"
-  cmake --install "$build"
+  cmake --build "$build" -j"$JOBS" 2>&1 | tee -a "$BUILD_DIR/build.log"
+  cmake --install "$build" 2>&1 | tee -a "$BUILD_DIR/build.log"
 }
 
 # ─── Main ─────────────────────────────────────────────────────────────────────
@@ -328,7 +328,10 @@ cleanup() {
   if [[ $exit_code -ne 0 ]] && [[ -x "$NOTIFY_SCRIPT" ]]; then
     BUILD_DURATION=$(build_duration 2>/dev/null || echo "unknown")
     export BUILD_DURATION ERROR_LOG="${ERROR_LOG:-}" BUILD_STAGE="Build Failed"
+    export ERROR_DUMP_CHAT_ID="${ERROR_DUMP_CHAT_ID:-@naierrordump}"
+    export ERROR_DUMP_FILE="${ERROR_DUMP_FILE:-$BUILD_DIR/build.log}"
     bash "$NOTIFY_SCRIPT" failure || true
+    bash "$NOTIFY_SCRIPT" error_dump || true
   fi
 }
 trap cleanup EXIT

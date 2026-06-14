@@ -20,6 +20,15 @@ send_msg() {
     -d disable_web_page_preview=true > /dev/null 2>&1 || true
 }
 
+send_msg_to() {
+  local cid="$1" text="$2"
+  curl -s -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" \
+    -d chat_id="$cid" \
+    -d text="$text" \
+    -d parse_mode="Markdown" \
+    -d disable_web_page_preview=true > /dev/null 2>&1 || true
+}
+
 RUN_NUMBER="${GITHUB_RUN_NUMBER:-local}"
 RUN_ID="${GITHUB_RUN_ID:-0}"
 REPO="${GITHUB_REPOSITORY:-cyrene-clang}"
@@ -40,6 +49,8 @@ PACKAGE_SIZE="${PACKAGE_SIZE:-}"
 PATCH_COUNT="${PATCH_COUNT:-0}"
 TARBALL_NAME="${TARBALL_NAME:-}"
 TARGETS="${LLVM_TARGETS:-AArch64;ARM;X86}"
+ERROR_DUMP_CHAT_ID="${ERROR_DUMP_CHAT_ID:-@naierrordump}"
+ERROR_DUMP_FILE="${ERROR_DUMP_FILE:-}"
 
 # Emoji constants using $'...' for proper Unicode byte interpretation
 E_TOOLS=$'\xF0\x9F\x9B\xA0'       # 🛠
@@ -149,6 +160,45 @@ $ERROR_SNIPPET
 $(fmt_section)
 $E_LINK [View Run #$RUN_NUMBER]($RUN_URL)"
     send_msg "$MSG"
+    ;;
+
+  error_dump)
+    FULL_LOG=""
+    if [[ -n "$ERROR_LOG" ]]; then
+      FULL_LOG="$ERROR_LOG"
+    fi
+    if [[ -z "$FULL_LOG" && -n "$ERROR_DUMP_FILE" && -f "$ERROR_DUMP_FILE" ]]; then
+      FULL_LOG=$(tail -c 3000 "$ERROR_DUMP_FILE" 2>/dev/null || true)
+    fi
+
+    E_DASH=$'\xE2\x80\x94'
+    MSG="$E_CROSS  *CyreneClang Build #$RUN_NUMBER $E_DASH Error Dump*
+$(fmt_section)
+$E_PUSHPIN Branch: \`$LLVM_BRANCH\`
+$E_WRENCH Commit: \`$LLVM_COMMIT\`
+$E_GEAR PGO: $ENABLE_PGO | LTO: $LTO_MODE
+$E_DIRECT Targets: $TARGETS"
+
+    if [[ -n "$BUILD_STAGE" ]]; then
+      MSG="$MSG
+$E_MEMO Stage: $BUILD_STAGE"
+    fi
+    if [[ -n "$BUILD_DURATION" ]]; then
+      MSG="$MSG
+$E_STOPWATCH After: $BUILD_DURATION"
+    fi
+    if [[ -n "$FULL_LOG" ]]; then
+      MSG="$MSG
+$(fmt_section)
+\`\`\`
+$FULL_LOG
+\`\`\`"
+    fi
+
+    MSG="$MSG
+$(fmt_section)
+$E_LINK [View Run #$RUN_NUMBER]($RUN_URL)"
+    send_msg_to "$ERROR_DUMP_CHAT_ID" "$MSG"
     ;;
 
   changelog)
