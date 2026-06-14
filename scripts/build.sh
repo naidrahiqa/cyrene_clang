@@ -18,6 +18,19 @@ LLVM_TARGETS="AArch64;ARM;X86"
 # Projects to build — polly for loop vectorization
 LLVM_PROJECTS="clang;lld;compiler-rt;polly"
 
+# ─── Host Compiler Detection ──────────────────────────────────────────────
+detect_host_compiler() {
+  if command -v clang &>/dev/null; then
+    HOST_CC="clang"
+    HOST_CXX="clang++"
+    HOST_HAS_CLANG=true
+  else
+    HOST_CC="cc"
+    HOST_CXX="c++"
+    HOST_HAS_CLANG=false
+  fi
+}
+
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 log() { echo -e "\n\033[1;36m[CyreneClang]\033[0m $*"; }
 warn() { echo -e "\033[1;33m[WARN]\033[0m $*" >&2; }
@@ -111,6 +124,8 @@ stage1_build() {
   local s1_install="$BUILD_DIR/stage1-install"
 
   cmake_configure "$LLVM_DIR" "$s1_build" "$s1_install" \
+    -DCMAKE_C_COMPILER="$HOST_CC" \
+    -DCMAKE_CXX_COMPILER="$HOST_CXX" \
     -DLLVM_ENABLE_LTO=OFF \
     -DLLVM_BUILD_INSTRUMENTED=IR \
     -DLLVM_VP_COUNTERS_PER_SITE=6
@@ -258,9 +273,28 @@ simple_build() {
   log "Building CyreneClang (no PGO) ..."
   local build="$BUILD_DIR/simple"
 
-  cmake_configure "$LLVM_DIR" "$build" "$INSTALL_DIR" \
-    -DLLVM_ENABLE_LTO=Thin \
-    -DCOMPILER_RT_ENABLE_LTO=OFF
+  # Use Stage 1 Clang (supports ThinLTO) if available; fall back to system Clang
+  local cc="${STAGE1_CC:-}"
+  local cxx="${STAGE1_CXX:-}"
+
+  if [[ -z "$cc" || ! -f "$cc" ]]; then
+    if [[ "$HOST_HAS_CLANG" == "true" ]]; then
+      cc="$HOST_CC"; cxx="$HOST_CXX"
+    fi
+  fi
+
+  if [[ -n "$cc" && -f "$cc" ]]; then
+    cmake_configure "$LLVM_DIR" "$build" "$INSTALL_DIR" \
+      -DCMAKE_C_COMPILER="$cc" \
+      -DCMAKE_CXX_COMPILER="$cxx" \
+      -DLLVM_ENABLE_LTO=Thin \
+      -DCOMPILER_RT_ENABLE_LTO=OFF
+  else
+    warn "No Clang host compiler found — building without ThinLTO"
+    LTO_MODE="Off"
+    cmake_configure "$LLVM_DIR" "$build" "$INSTALL_DIR" \
+      -DLLVM_ENABLE_LTO=OFF
+  fi
 
   cmake --build "$build" -j"$JOBS" 2>&1 | tee -a "$BUILD_DIR/build.log"
   cmake --install "$build" 2>&1 | tee -a "$BUILD_DIR/build.log"
@@ -268,6 +302,7 @@ simple_build() {
 
 # ─── Main ─────────────────────────────────────────────────────────────────────
 main() {
+  detect_host_compiler
   BUILD_DATE=$(date -u +%Y-%m-%d)
   LLVM_COMMIT=$(git -C "$LLVM_DIR" rev-parse --short HEAD 2>/dev/null || echo "unknown")
   LTO_MODE="Thin"
