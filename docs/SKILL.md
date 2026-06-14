@@ -35,8 +35,10 @@ cyrene-clang/
 - **Build flags** → edit `scripts/build.sh` (CMake flags)
 - **Patch baru** → taruh `.patch` di `patches/`
 - **CI** → `.github/workflows/build.yml`
-- **Token/secret** → GitHub Secrets (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `ERROR_DUMP_CHAT_ID`)
+- **Token/secret** → GitHub Secrets, jangan hardcode:
+  - `TELEGRAM_BOT_TOKEN` — bot token (wajib)
+  - `TELEGRAM_CHAT_ID` — channel buat notif build (`@naiprojectupdate`)
+  - `ERROR_DUMP_CHAT_ID` — channel buat error dump (`@naierrordump`)
 - **JANGAN hardcode secret apapun** — chat ID, token, API key harus dari env var, fallback ke kosong (`:-}`) biar aman kalo gak di-set
-- **Error dump** → set `ERROR_DUMP_CHAT_ID` di GitHub Secrets biar error log otomatis dikirim ke channel
 - **Kompresi** → selalu `zstd`
 - **Clone LLVM** → selalu `--depth=1`
