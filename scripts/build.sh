@@ -23,6 +23,51 @@ log() { echo -e "\n\033[1;36m[CyreneClang]\033[0m $*"; }
 warn() { echo -e "\033[1;33m[WARN]\033[0m $*" >&2; }
 die() { echo -e "\033[1;31m[ERROR]\033[0m $*" >&2; exit 1; }
 
+SCRIPT_DIR="$(dirname "$0")"
+NOTIFY_SCRIPT="$SCRIPT_DIR/notify.sh"
+
+START_EPOCH=$(date +%s)
+
+notify() {
+  local type="$1"
+  export BUILD_STAGE="${2:-}"
+  [[ -x "$NOTIFY_SCRIPT" ]] && bash "$NOTIFY_SCRIPT" "$type" || true
+}
+
+build_duration() {
+  local now end elapsed h m s
+  now=$(date +%s)
+  elapsed=$((now - START_EPOCH))
+  h=$((elapsed / 3600))
+  m=$(((elapsed % 3600) / 60))
+  s=$((elapsed % 60))
+  printf "%dh %dm %ds" "$h" "$m" "$s"
+}
+
+gen_changelog() {
+  local cl="$BUILD_DIR/changelog.txt"
+  {
+    echo "*Date:* $BUILD_DATE"
+    echo "*Branch:* \`$LLVM_BRANCH\`"
+    echo "*LLVM Commit:* \`$LLVM_COMMIT\`"
+    echo "*PGO:* $ENABLE_PGO | *LTO:* $LTO_MODE"
+
+    local patch_files=("$(dirname "$SCRIPT_DIR")/patches"/*.patch)
+    if ls "$(dirname "$SCRIPT_DIR")/patches/"*.patch &>/dev/null 2>&1; then
+      echo ""
+      echo "*Applied Patches:*"
+      for pf in "$(dirname "$SCRIPT_DIR")/patches/"*.patch; do
+        local name
+        name=$(basename "$pf")
+        local subj
+        subj=$(head -1 "$pf" 2>/dev/null | sed 's/^Subject: //' || echo "")
+        echo "  \xE2\x80\xA2 \`$name\`${subj:+ \u2014 $subj}"
+      done
+    fi
+  } > "$cl"
+  echo "$cl"
+}
+
 # ─── Stage 0: Clone LLVM ──────────────────────────────────────────────────────
 clone_llvm() {
   if [[ -d "$LLVM_DIR" ]]; then
@@ -37,7 +82,7 @@ clone_llvm() {
 # ─── Apply Custom Patches ─────────────────────────────────────────────────────
 apply_patches() {
   log "Applying custom patches ..."
-  bash "$(dirname "$0")/patch.sh" "$LLVM_DIR"
+  bash "$SCRIPT_DIR/patch.sh" "$LLVM_DIR"
 }
 
 # ─── CMake Configure Helper ───────────────────────────────────────────────────
@@ -222,27 +267,69 @@ simple_build() {
 
 # ─── Main ─────────────────────────────────────────────────────────────────────
 main() {
+  BUILD_DATE=$(date -u +%Y-%m-%d)
+  LLVM_COMMIT=$(git -C "$LLVM_DIR" rev-parse --short HEAD 2>/dev/null || echo "unknown")
+  LTO_MODE="Thin"
+  PATCH_COUNT=0
+  if ls "$(dirname "$SCRIPT_DIR")/patches/"*.patch &>/dev/null 2>&1; then
+    PATCH_COUNT=$(ls -1 "$(dirname "$SCRIPT_DIR")/patches/"*.patch 2>/dev/null | wc -l)
+  fi
+
+  export LLVM_BRANCH BUILD_DATE LLVM_COMMIT LTO_MODE PATCH_COUNT
+  export GITHUB_RUN_NUMBER="${GITHUB_RUN_NUMBER:-}"
+  export GITHUB_RUN_ID="${GITHUB_RUN_ID:-}"
+  export GITHUB_REPOSITORY="${GITHUB_REPOSITORY:-}"
+
+  notify started
+
   log "Starting CyreneClang build (PGO=$ENABLE_PGO) ..."
   mkdir -p "$BUILD_DIR"
 
   clone_llvm
   apply_patches
 
+  # Refresh commit after patching
+  LLVM_COMMIT=$(git -C "$LLVM_DIR" rev-parse --short HEAD 2>/dev/null || echo "unknown")
+  export LLVM_COMMIT
+
+  BUILD_SUCCESS=false
   if [[ "$ENABLE_PGO" == "true" ]]; then
     stage1_build
     if collect_profiles; then
       stage2_build
+      BUILD_SUCCESS=true
     else
       warn "PGO profile collection failed. Falling back to non-PGO (simple) build."
       ENABLE_PGO="false"
+      export ENABLE_PGO
       simple_build
+      BUILD_SUCCESS=true
     fi
   else
     simple_build
+    BUILD_SUCCESS=true
   fi
 
-  log "Build complete! Toolchain installed to: $INSTALL_DIR"
-  log "Clang version: $("$INSTALL_DIR/bin/clang" --version | head -1)"
+  if [[ "$BUILD_SUCCESS" == "true" ]]; then
+    CLANG_VERSION=$("$INSTALL_DIR/bin/clang" --version | head -1 | grep -oP '\d+\.\d+\.\d+\S*' | head -1)
+    BUILD_DURATION=$(build_duration)
+    export CLANG_VERSION BUILD_DURATION
+    export CHANGELOG_FILE=$(gen_changelog)
+
+    log "Build complete! Toolchain installed to: $INSTALL_DIR"
+    log "Clang version: $CLANG_VERSION"
+    notify success
+  fi
 }
+
+cleanup() {
+  local exit_code=$?
+  if [[ $exit_code -ne 0 ]] && [[ -x "$NOTIFY_SCRIPT" ]]; then
+    BUILD_DURATION=$(build_duration 2>/dev/null || echo "unknown")
+    export BUILD_DURATION ERROR_LOG="${ERROR_LOG:-}" BUILD_STAGE="Build Failed"
+    bash "$NOTIFY_SCRIPT" failure || true
+  fi
+}
+trap cleanup EXIT
 
 main "$@"
