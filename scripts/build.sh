@@ -86,13 +86,28 @@ collect_sqlite() {
 
   local workload_dir="$BUILD_DIR/workload"
   mkdir -p "$workload_dir"
-  curl -sSL https://www.sqlite.org/2024/sqlite-amalgamation-3460000.zip \
-    -o "$workload_dir/sqlite.zip" 2>/dev/null || { warn "SQLite download failed"; return 1; }
-  unzip -q "$workload_dir/sqlite.zip" -d "$workload_dir" 2>/dev/null || { warn "SQLite unzip failed"; return 1; }
+  
+  log "Downloading SQLite amalgamation ..."
+  if ! curl -sSL https://www.sqlite.org/2024/sqlite-amalgamation-3460000.zip \
+    -o "$workload_dir/sqlite.zip"; then
+    warn "SQLite download failed"
+    return 1
+  fi
 
-  "$STAGE1_CC" -O2 -o /dev/null \
-    "$workload_dir/sqlite-amalgamation-3460000/sqlite3.c" \
-    -lpthread -ldl 2>/dev/null || true
+  log "Extracting SQLite amalgamation ..."
+  if ! unzip -q "$workload_dir/sqlite.zip" -d "$workload_dir"; then
+    warn "SQLite unzip failed"
+    return 1
+  fi
+
+  log "Compiling SQLite workload with Stage 1 Clang ..."
+  if ! "$STAGE1_CC" -c -O2 -o /dev/null \
+    "$workload_dir/sqlite-amalgamation-3460000/sqlite3.c"; then
+    warn "SQLite compilation failed"
+    return 1
+  fi
+  
+  log "SQLite workload completed successfully."
 }
 
 # ─── PGO Profile Collection: Real Kernel ─────────────────────────────────────
@@ -106,23 +121,36 @@ collect_kernel() {
   local kernel_dir="$BUILD_DIR/kernel-workload"
   log "Cloning android-mainline kernel (--depth=1) ..."
   if ! git clone --depth=1 \
-    https://android.googlesource.com/kernel/common "$kernel_dir" 2>/dev/null; then
-    warn "Kernel clone failed — falling back to SQLite workload"
+    https://android.googlesource.com/kernel/common "$kernel_dir"; then
+    warn "Kernel clone failed"
     return 1
   fi
 
   pushd "$kernel_dir" > /dev/null
   log "Configuring kernel (defconfig ARCH=arm64) ..."
-  make defconfig ARCH=arm64 CC="$STAGE1_CC" 2>/dev/null || { warn "Kernel defconfig failed"; popd > /dev/null; return 1; }
+  if ! make defconfig ARCH=arm64 CC="$STAGE1_CC"; then
+    warn "Kernel defconfig failed"
+    popd > /dev/null
+    rm -rf "$kernel_dir"
+    return 1
+  fi
 
   log "Building kernel subsystems (drivers/gpu + kernel/) ..."
-  make -j"$JOBS" ARCH=arm64 CC="$STAGE1_CC" \
-    drivers/gpu/ kernel/ 2>/dev/null || \
-    warn "Kernel partial build had warnings (profiles may still be valid)"
+  make -j"$JOBS" ARCH=arm64 CC="$STAGE1_CC" drivers/gpu/ kernel/ || warn "Kernel partial build had errors/warnings"
   popd > /dev/null
 
   log "Cleaning up kernel source (saves ~2GB) ..."
   rm -rf "$kernel_dir"
+
+  # Verify profiles were generated
+  shopt -s nullglob
+  local profiles=("$profile_dir"/*.profraw)
+  shopt -u nullglob
+  if (( ${#profiles[@]} == 0 )); then
+    warn "Kernel workload generated no profiles."
+    return 1
+  fi
+  log "Kernel workload completed successfully."
 }
 
 # ─── PGO Profile Collection ───────────────────────────────────────────────────
@@ -134,16 +162,29 @@ collect_profiles() {
   mkdir -p "$profile_dir"
 
   if [[ "$workload" == "kernel" ]]; then
-    collect_kernel || collect_sqlite
+    collect_kernel || { warn "Kernel workload failed, falling back to SQLite workload..."; collect_sqlite; } || return 1
   else
-    collect_sqlite
+    collect_sqlite || return 1
+  fi
+
+  # Check if any .profraw files were actually generated
+  shopt -s nullglob
+  local profiles=("$profile_dir"/*.profraw)
+  shopt -u nullglob
+
+  if (( ${#profiles[@]} == 0 )); then
+    warn "No .profraw profile files were generated in $profile_dir."
+    return 1
   fi
 
   # Merge raw profiles into a single .prof file
   log "Merging PGO profiles ..."
-  "$BUILD_DIR/stage1-install/bin/llvm-profdata" merge \
+  if ! "$BUILD_DIR/stage1-install/bin/llvm-profdata" merge \
     -output="$BUILD_DIR/pgo.prof" \
-    "$profile_dir"/*.profraw
+    "${profiles[@]}"; then
+    warn "llvm-profdata merge failed"
+    return 1
+  fi
 
   export PGO_PROF="$BUILD_DIR/pgo.prof"
   log "PGO profile ready: $PGO_PROF"
@@ -187,8 +228,13 @@ main() {
 
   if [[ "$ENABLE_PGO" == "true" ]]; then
     stage1_build
-    collect_profiles
-    stage2_build
+    if collect_profiles; then
+      stage2_build
+    else
+      warn "PGO profile collection failed. Falling back to non-PGO (simple) build."
+      ENABLE_PGO="false"
+      simple_build
+    fi
   else
     simple_build
   fi
