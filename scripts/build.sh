@@ -199,6 +199,7 @@ stage2_build() {
     -DCMAKE_C_COMPILER="$STAGE1_CC" \
     -DCMAKE_CXX_COMPILER="$STAGE1_CXX" \
     -DLLVM_ENABLE_LTO=Thin \
+    -DCOMPILER_RT_ENABLE_LTO=OFF \
     -DLLVM_PROFDATA_FILE="$PGO_PROF" \
     -DLLVM_ENABLE_PLUGINS=ON
 
@@ -212,7 +213,8 @@ simple_build() {
   local build="$BUILD_DIR/simple"
 
   cmake_configure "$LLVM_DIR" "$build" "$INSTALL_DIR" \
-    -DLLVM_ENABLE_LTO=Thin
+    -DLLVM_ENABLE_LTO=Thin \
+    -DCOMPILER_RT_ENABLE_LTO=OFF
 
   cmake --build "$build" -j"$JOBS"
   cmake --install "$build"
