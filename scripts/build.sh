@@ -16,8 +16,8 @@ PGO_WORKLOAD="${PGO_WORKLOAD:-sqlite}"  # "sqlite" (fast) or "kernel" (accurate)
 # Targets: AArch64 (Android), ARM (32-bit compat), X86 (host tools)
 LLVM_TARGETS="AArch64;ARM;X86"
 
-# Projects to build — polly for loop vectorization
-LLVM_PROJECTS="clang;lld;compiler-rt;polly"
+# Projects to build — polly for loop vectorization, bolt for binary optimization
+LLVM_PROJECTS="clang;lld;compiler-rt;polly;bolt"
 
 # Vendor string — appended to clang version (e.g. "CyreneClang 22.1.0")
 CLANG_VENDOR="${CLANG_VENDOR:-CyreneClang}"
@@ -285,7 +285,6 @@ apply_bolt() {
   local clang_bin="$INSTALL_DIR/bin/clang"
   local llvm_bolt="$INSTALL_DIR/bin/llvm-bolt"
   local perf2bolt="$INSTALL_DIR/bin/perf2bolt"
-  local llvm_objcopy="$INSTALL_DIR/bin/llvm-objcopy"
 
   # Check prerequisites
   if [[ ! -x "$clang_bin" ]]; then

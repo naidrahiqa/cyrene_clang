@@ -78,7 +78,7 @@ cat > "$NOTES" << EOF
 $BUILD_DATE
 
 [clang-ver]
-Cirrus clang version $CLANG_VERSION (https://github.com/llvm/llvm-project $LLVM_COMMIT_FULL)
+CyreneClang $CLANG_VERSION (https://github.com/llvm/llvm-project $LLVM_COMMIT_FULL)
 
 [lld-ver]
 LLD $CLANG_VERSION (https://github.com/llvm/llvm-project $LLVM_COMMIT_FULL) (compatible with GNU linkers)
