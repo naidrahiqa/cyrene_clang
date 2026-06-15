@@ -74,6 +74,7 @@ jobs:
             cmake ninja-build python3 git curl unzip \
             clang lld \
             libxml2-dev libedit-dev libncurses5-dev \
+            libc++-dev libc++abi-dev \
             zstd build-essential ca-certificates \
             binutils-aarch64-linux-gnu
 
