@@ -366,4 +366,29 @@ $E_LINK [View Release](https://github.com/$REPO/releases/tag/$RELEASE_TAG)"
       send_msg "$MSG"
     fi
     ;;
+
+  release)
+    RELEASE_URL="https://github.com/$REPO/releases/tag/$RELEASE_TAG"
+    MSG="$(fmt_header "Cyrene Clang $RELEASE_TAG Released")"
+    MSG="$MSG
+$E_CHECK *Release published successfully!*"
+    MSG="$MSG
+$(fmt_section)
+$E_PACKAGE *Release Info:*"
+    MSG="$MSG
+$(fmt_kv_raw "$E_PACKAGE" "Tag" "$RELEASE_TAG")"
+    MSG="$MSG
+$(fmt_kv_raw "$E_PACKAGE" "File" "${TARBALL_NAME:-unknown}")"
+    MSG="$MSG
+$(fmt_kv_raw "$E_PACKAGE" "Size" "${PACKAGE_SIZE:-unknown}")"
+    MSG="$MSG
+$(fmt_section)
+$E_ROCKET *Quick Download:*
+\`\`\`
+wget $RELEASE_URL/download/$RELEASE_TAG/${TARBALL_NAME:-cyrene-clang.tar.zst}
+\`\`\`"
+    MSG="$MSG
+$E_LINK [View Release]($RELEASE_URL)"
+    send_msg "$MSG"
+    ;;
 esac

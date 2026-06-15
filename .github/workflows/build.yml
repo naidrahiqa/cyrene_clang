@@ -4,8 +4,8 @@ on:
   workflow_dispatch:
     inputs:
       llvm_branch:
-        description: 'LLVM branch or tag (e.g. main, llvmorg-18.1.0)'
-        default: 'main'
+        description: 'LLVM branch or tag (e.g. llvmorg-22.1.0, main)'
+        default: 'llvmorg-22.1.0'
         required: true
       enable_pgo:
         description: 'Enable 2-stage PGO build'
@@ -28,7 +28,7 @@ on:
       - 'scripts/**'
 
 env:
-  LLVM_BRANCH: ${{ github.event.inputs.llvm_branch || 'main' }}
+  LLVM_BRANCH: ${{ github.event.inputs.llvm_branch || 'llvmorg-22.1.0' }}
   ENABLE_PGO: ${{ github.event.inputs.enable_pgo || 'true' }}
   PGO_WORKLOAD: ${{ github.event.inputs.pgo_workload || 'sqlite' }}
   INSTALL_DIR: ${{ github.workspace }}/toolchain

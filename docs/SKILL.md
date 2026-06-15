@@ -1,44 +1,52 @@
-# CyreneClang Toolchain — AI Skill
-
-> Lihat file lengkap di `.opencode/skills/SKILLS.MD` (source of truth).
-> File ini adalah alias agar `docs/SKILL.md` bisa diakses dari prompt manapun.
-
-## Ringkasan
-
-CyreneClang adalah custom LLVM/Clang toolchain untuk Android kernel:
-- PGO 2-stage + ThinLTO + Polly
-- Target: AArch64, ARM, X86
-- Kernel 4.x–6.x support
-- Weekly auto-sync dari LLVM main
-- Distribusi via GitHub Releases + `clang-version.txt`
+# CyreneClang Toolchain — Quick Reference
 
 ## Struktur
 
 ```
 cyrene-clang/
-├── .github/workflows/build.yml
+├── .github/workflows/
+│   ├── build.yml              # Main build pipeline
+│   └── sync-patches.yml       # Auto-sync LLVM patches
 ├── scripts/
-│   ├── build.sh
-│   ├── patch.sh
-│   ├── package.sh
-│   └── notify.sh
+│   ├── build.sh               # Core 2-stage PGO+ThinLTO build
+│   ├── patch.sh               # Apply patches with fallback
+│   ├── package.sh             # Compress + generate manifest
+│   ├── notify.sh              # Telegram notifications
+│   ├── sync-patches.sh        # Auto-find LLVM stable commits
+│   ├── kernel-lto.sh          # Kernel ThinLTO env setup
+│   └── check-compat.sh        # Toolchain compatibility check
 ├── patches/
+│   └── 0001-*.patch           # Applied to LLVM before build
 ├── docs/
-│   ├── SKILL.md
-│   ├── feature-general.md
-│   └── feature-specific.md
-├── PROMPT.MD
+│   ├── feature-general.md     # Feature dev template
+│   └── feature-specific.md    # Feature prompts
 └── README.MD
 ```
 
-## Panduan Cepat
-- **Build flags** → edit `scripts/build.sh` (CMake flags)
-- **Patch baru** → taruh `.patch` di `patches/`
-- **CI** → `.github/workflows/build.yml`
-- **Token/secret** → GitHub Secrets, jangan hardcode:
-  - `TELEGRAM_BOT_TOKEN` — bot token (wajib)
-  - `TELEGRAM_CHAT_ID` — channel buat notif build (`@naiprojectupdate`)
-  - `ERROR_DUMP_CHAT_ID` — channel buat error dump (`@naierrordump`)
-- **JANGAN hardcode secret apapun** — chat ID, token, API key harus dari env var, fallback ke kosong (`:-}`) biar aman kalo gak di-set
-- **Kompresi** → selalu `zstd`
-- **Clone LLVM** → selalu `--depth=1`
+## Build Flags
+
+| Flag | Default | Deskripsi |
+|------|---------|-----------|
+| `LLVM_BRANCH` | `llvmorg-22.1.0` | LLVM branch/tag |
+| `ENABLE_PGO` | `true` | 2-stage PGO build |
+| `PGO_WORKLOAD` | `sqlite` | PGO workload (`sqlite`/`kernel`) |
+| `LLVM_TARGETS` | `AArch64;ARM;X86` | Target architectures |
+| `JOBS` | `$(nproc)` | Parallel jobs |
+
+## Patch Workflow
+
+1. Taruh `.patch` di `patches/`
+2. Push ke `main` → build trigger otomatis
+3. `patch.sh` apply via `git apply` → `--3way` → `sed` fallback
+
+## Secrets (GitHub Actions)
+
+- `TELEGRAM_BOT_TOKEN` — Bot token
+- `TELEGRAM_CHAT_ID` — Channel notif build
+- `ERROR_DUMP_CHAT_ID` — Channel error dump
+
+## Kontribusi
+
+- Commit style: `type: description` (e.g. `fix:`, `feat:`, `chore:`)
+- Branch: `main` untuk semua
+- Patch: format `NNNN-description.patch`
