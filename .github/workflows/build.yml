@@ -75,7 +75,7 @@ jobs:
             clang lld \
             libxml2-dev libedit-dev libncurses5-dev \
             libc++-dev libc++abi-dev \
-            libm-dev libc6-dev libgcc-11-dev \
+            libc6-dev libgcc-11-dev \
             zstd build-essential ca-certificates \
             binutils-aarch64-linux-gnu
 
