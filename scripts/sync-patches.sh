@@ -94,7 +94,13 @@ main() {
   if [[ ! -d "$LLVM_DIR/.git" ]]; then
     log "Cloning LLVM for commit lookup..."
     git clone --filter=blob:none --no-checkout "$LLVM_REMOTE" "$LLVM_DIR"
-    git -C "$LLVM_DIR" fetch --tags --depth=1 origin "refs/tags/llvmorg-*:refs/tags/llvmorg-*" 2>/dev/null || true
+    # Fetch only the two tags we need (current + latest), not all tags
+    if [[ "$current_version" != "main" ]]; then
+      git -C "$LLVM_DIR" fetch --depth=1 origin "refs/tags/$current_version:refs/tags/$current_version" 2>/dev/null || true
+    fi
+    if [[ -n "$latest_release" && "$latest_release" != "$current_version" ]]; then
+      git -C "$LLVM_DIR" fetch --depth=1 origin "refs/tags/$latest_release:refs/tags/$latest_release" 2>/dev/null || true
+    fi
     git -C "$LLVM_DIR" checkout HEAD 2>/dev/null || true
   fi
   

@@ -71,6 +71,7 @@ main() {
   if [[ -n "${KERNEL_FULL:-}" ]]; then
     log "Kernel: $KERNEL_FULL"
     IFS=. read -r kv kp <<< "$KERNEL_FULL"
+    unset IFS
     if [[ "$kv" -lt 5 || ("$kv" -eq 5 && "$kp" -lt 12) ]]; then
       warn "Kernel < 5.12 has incomplete LTO support. Proceed with caution."
     fi

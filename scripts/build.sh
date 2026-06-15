@@ -36,7 +36,7 @@ log() { echo -e "\n\033[1;36m[CyreneClang]\033[0m $*"; }
 warn() { echo -e "\033[1;33m[WARN]\033[0m $*" >&2; }
 die() { echo -e "\033[1;31m[ERROR]\033[0m $*" >&2; exit 1; }
 
-SCRIPT_DIR="$(dirname "$0")"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 NOTIFY_SCRIPT="$SCRIPT_DIR/notify.sh"
 
 START_EPOCH=$(date +%s)
@@ -73,7 +73,7 @@ gen_changelog() {
         local name
         name=$(basename "$pf")
         local subj
-        subj=$(head -1 "$pf" 2>/dev/null | sed 's/^Subject: //' || echo "")
+        subj=$(grep -m1 '^Subject: ' "$pf" 2>/dev/null | sed 's/^Subject: //' || echo "")
         local BULLET=$'\xE2\x80\xA2' DASH=$'\xE2\x80\x94'
         echo "  $BULLET \`$name\`${subj:+ $DASH $subj}"
       done

@@ -110,7 +110,7 @@ bash scripts/build.sh
 Environment variables:
 | Variable | Default | Description |
 |---|---|---|
-| `LLVM_BRANCH` | `main` | LLVM branch or tag to build |
+| `LLVM_BRANCH` | `llvmorg-22.1.0` | LLVM branch or tag to build |
 | `ENABLE_PGO` | `true` | Enable 2-stage PGO build |
 | `PGO_WORKLOAD` | `sqlite` | PGO workload: `sqlite` (fast) or `kernel` (accurate) |
 | `INSTALL_DIR` | `~/toolchains/cyrene` | Where to install the toolchain |

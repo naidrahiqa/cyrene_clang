@@ -21,16 +21,22 @@ A balanced Android kernel toolchain with these priorities (in order):
 ## Repository Layout
 ```
 cyrene-clang/
-├── .github/workflows/build.yml   # CI/CD pipeline
+├── .github/workflows/
+│   ├── build.yml              # CI/CD pipeline (build + package + release)
+│   └── sync-patches.yml       # Auto-sync patches from LLVM stable
 ├── scripts/
-│   ├── build.sh                  # CMake configure + build + PGO stages
-│   ├── patch.sh                  # Apply patches from patches/
-│   └── package.sh                # Compress + generate clang-version.txt
-├── patches/                      # Custom LLVM patches (format-patch style)
+│   ├── build.sh               # CMake configure + 2-stage PGO build
+│   ├── patch.sh               # Apply patches from patches/
+│   ├── package.sh             # Compress + generate clang-version.txt
+│   ├── notify.sh              # Telegram notification helper
+│   ├── kernel-lto.sh          # Kernel ThinLTO environment helper
+│   ├── sync-patches.sh        # Auto cherry-pick from LLVM stable
+│   └── check-compat.sh        # Compatibility validator
+├── patches/                   # Custom LLVM patches (format-patch style)
 ├── docs/
-│   ├── SKILL.md                  # Full project reference
-│   ├── feature-general.md        # General feature dev prompt
-│   └── feature-specific.md       # Feature-specific prompts (LTO, PGO, dll)
+│   ├── SKILL.md               # Full project reference
+│   ├── feature-general.md     # General feature dev prompt
+│   └── feature-specific.md    # Feature-specific prompts (LTO, PGO, dll)
 ```
 
 ## How You Work
