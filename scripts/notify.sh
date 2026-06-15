@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# CyreneClang — Enhanced Telegram Notification Script
+# Cyrene Clang — Enhanced Telegram Notification Script
 # Sends build status notifications via Telegram Bot API with rich formatting,
 # build metadata, and changelog support.
 # Usage: ./notify.sh <started|success|failure|changelog>
@@ -31,8 +31,9 @@ send_msg_to() {
 
 RUN_NUMBER="${GITHUB_RUN_NUMBER:-local}"
 RUN_ID="${GITHUB_RUN_ID:-0}"
-REPO="${GITHUB_REPOSITORY:-cyrene-clang}"
+REPO="${GITHUB_REPOSITORY:-naidrahiqa/cyrene_clang}"
 RUN_URL="https://github.com/$REPO/actions/runs/$RUN_ID"
+CYRENE_COMMIT="${GITHUB_SHA:-unknown}"
 
 CLANG_VERSION="${CLANG_VERSION:-unknown}"
 LLVM_BRANCH="${LLVM_BRANCH:-main}"
@@ -121,15 +122,26 @@ fmt_llvm_link() {
   fi
 }
 
+fmt_cyrene_link() {
+  local commit="$1"
+  if [[ -n "$commit" && "$commit" != "unknown" ]]; then
+    echo "$E_WRENCH Cyrene Clang: [\`${commit:0:7}\`](https://github.com/$REPO/commit/$commit)"
+  else
+    echo "$E_WRENCH Cyrene Clang: \`unknown\`"
+  fi
+}
+
 case "$MESSAGE_TYPE" in
   started)
-    MSG="$(fmt_header "CyreneClang Build #$RUN_NUMBER Started")"
+    MSG="$(fmt_header "Cyrene Clang Build #$RUN_NUMBER Started")"
     MSG="$MSG
 $E_CI *Build #$RUN_NUMBER triggered*"
     MSG="$MSG
+$(fmt_cyrene_link "$CYRENE_COMMIT")"
+    MSG="$MSG
 $(fmt_kv_raw "$E_PUSHPIN" "Branch" "$LLVM_BRANCH")"
     MSG="$MSG
-$(fmt_commit_link "$LLVM_COMMIT")"
+$(fmt_llvm_link "$LLVM_COMMIT")"
     MSG="$MSG
 $(fmt_kv_raw "$E_GEAR" "PGO" "$ENABLE_PGO") | $(fmt_kv_raw "$E_DIRECT" "LTO" "$LTO_MODE")"
     MSG="$MSG
@@ -157,7 +169,7 @@ $E_LINK [View Run #$RUN_NUMBER]($RUN_URL)"
     PGO_STR="$E_CHECK Enabled"
     [[ "$ENABLE_PGO" == "false" ]] && PGO_STR="$E_CROSS Disabled"
 
-    MSG="$(fmt_header "CyreneClang Build #$RUN_NUMBER SUCCEEDED")"
+    MSG="$(fmt_header "Cyrene Clang Build #$RUN_NUMBER SUCCEEDED")"
     MSG="$MSG
 $E_CHECK *Build completed successfully!*
 $E_STOPWATCH Duration: \`$BUILD_DURATION\`"
@@ -166,6 +178,8 @@ $(fmt_section)
 $E_WRENCH *Toolchain Info:*"
     MSG="$MSG
 $(fmt_kv_raw "$E_WRENCH" "Clang" "$CLANG_VERSION")"
+    MSG="$MSG
+$(fmt_cyrene_link "$CYRENE_COMMIT")"
     MSG="$MSG
 $(fmt_llvm_link "$LLVM_COMMIT")"
     MSG="$MSG
@@ -224,9 +238,11 @@ $E_LINK [View Full Changelog](https://github.com/$REPO/releases/tag/$RELEASE_TAG
       ERROR_FIRST_LINE=$(grep -i "error\|fatal\|failed" "$ERROR_DUMP_FILE" 2>/dev/null | head -1 | head -c 120)
     fi
 
-    MSG="$(fmt_header "CyreneClang Build #$RUN_NUMBER FAILED")"
+    MSG="$(fmt_header "Cyrene Clang Build #$RUN_NUMBER FAILED")"
     MSG="$MSG
 $E_PUSHPIN Branch: \`$LLVM_BRANCH\`"
+    MSG="$MSG
+$(fmt_cyrene_link "$CYRENE_COMMIT")"
     MSG="$MSG
 $(fmt_llvm_link "$LLVM_COMMIT")"
     MSG="$MSG
@@ -292,12 +308,14 @@ $E_LINK [View Full Run #$RUN_NUMBER]($RUN_URL)"
       ERROR_FIRST_LINE=$(grep -i "error\|fatal\|failed" "$ERROR_DUMP_FILE" 2>/dev/null | head -1 | head -c 150)
     fi
 
-    MSG="$(fmt_header "CyreneClang Build #$RUN_NUMBER $E_DASH Error Dump")"
+    MSG="$(fmt_header "Cyrene Clang Build #$RUN_NUMBER $E_DASH Error Dump")"
     MSG="$MSG
 $E_BUG *Full error log from failed build*"
     MSG="$MSG
 $(fmt_section)
 $E_PUSHPIN Branch: \`$LLVM_BRANCH\`"
+    MSG="$MSG
+$(fmt_cyrene_link "$CYRENE_COMMIT")"
     MSG="$MSG
 $(fmt_llvm_link "$LLVM_COMMIT")"
     MSG="$MSG
