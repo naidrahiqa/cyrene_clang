@@ -127,8 +127,7 @@ stage1_build() {
     -DCMAKE_C_COMPILER="$HOST_CC" \
     -DCMAKE_CXX_COMPILER="$HOST_CXX" \
     -DLLVM_ENABLE_LTO=OFF \
-    -DLLVM_BUILD_INSTRUMENTED=IR \
-    -DLLVM_VP_COUNTERS_PER_SITE=6
+    -DLLVM_BUILD_INSTRUMENTED=IR
 
   cmake --build "$s1_build" -j"$JOBS" 2>&1 | tee -a "$BUILD_DIR/build.log"
   cmake --install "$s1_build" 2>&1 | tee -a "$BUILD_DIR/build.log"
@@ -316,7 +315,7 @@ main() {
   export GITHUB_RUN_ID="${GITHUB_RUN_ID:-}"
   export GITHUB_REPOSITORY="${GITHUB_REPOSITORY:-}"
 
-  notify started
+  # Note: notify started is called by GitHub Actions workflow, not here
 
   log "Starting CyreneClang build (PGO=$ENABLE_PGO) ..."
   mkdir -p "$BUILD_DIR"

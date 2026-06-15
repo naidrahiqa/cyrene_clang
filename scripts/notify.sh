@@ -131,7 +131,9 @@ $(fmt_kv_raw "$E_CALENDAR" "Date" "$BUILD_DATE")"
 $(fmt_kv_raw "$E_MEMO" "Patches" "$PATCH_COUNT pending")"
     MSG="$MSG
 $(fmt_section)
-$E_ROCKET Building Clang $LLVM_BRANCH for Android kernels..."
+$E_ROCKET *Building Clang $LLVM_BRANCH for Android kernels...*"
+    MSG="$MSG
+$E_WAVE Queued at $(date -u +%H:%M:%S) UTC"
     MSG="$MSG
 $E_LINK [View Run #$RUN_NUMBER]($RUN_URL)"
     send_msg "$MSG"
