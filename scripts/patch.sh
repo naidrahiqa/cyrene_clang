@@ -4,7 +4,7 @@
 set -euo pipefail
 
 LLVM_DIR="${1:-$(pwd)/llvm-project}"
-PATCHES_DIR="$(dirname "$(dirname "$0")")/patches"
+PATCHES_DIR="$(cd "$(dirname "$(dirname "$0")")" && pwd)/patches"
 
 log() { echo -e "\033[1;33m[Patches]\033[0m $*"; }
 

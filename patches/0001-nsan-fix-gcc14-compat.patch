@@ -1,0 +1,33 @@
+From: CyreneClang <cyrene@cyreneclang.dev>
+Date: Mon, 15 Jun 2026 06:44:00 +0000
+Subject: [PATCH] nsan: fix std::array redefinition with GCC 14 libstdc++
+
+nsan.h includes <math.h> after sanitizer_redefine_builtins.h (via
+sanitizer_internal_defs.h). With GCC 14's libstdc++, <math.h> in C++
+mode transitively includes <bits/stl_pair.h> which defines
+std::array, conflicting with the `using array = ...` alias in
+sanitizer_redefine_builtins.h.
+
+Define SANITIZER_COMMON_REDEFINE_BUILTINS_IN_STD before the sanitizer
+include to skip the conflicting aliases, since nsan legitimately needs
+standard C headers.
+
+Signed-off-by: CyreneClang <cyrene@cyreneclang.dev>
+---
+ compiler-rt/lib/nsan/nsan.h | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/compiler-rt/lib/nsan/nsan.h b/compiler-rt/lib/nsan/nsan.h
+index 896e5379dfc3..71633b0f3877 100644
+--- a/compiler-rt/lib/nsan/nsan.h
++++ b/compiler-rt/lib/nsan/nsan.h
+@@ -12,6 +12,7 @@
+ #ifndef NSAN_H
+ #define NSAN_H
+ 
++#define SANITIZER_COMMON_REDEFINE_BUILTINS_IN_STD
+ #include "sanitizer_common/sanitizer_internal_defs.h"
+ 
+ using __sanitizer::sptr;
+-- 
+2.46.0
