@@ -106,9 +106,18 @@ fmt_kv_raw() {
 fmt_commit_link() {
   local commit="$1"
   if [[ -n "$commit" && "$commit" != "unknown" ]]; then
-    echo "$E_WRENCH Commit: [\`${commit:0:7}\`](https://github.com/$REPO/commit/$commit)"
+    echo "$E_WRENCH Commit: [\`${commit:0:7}\`](https://github.com/llvm/llvm-project/commit/$commit)"
   else
-    echo "$E_WRENCH Commit: \`unknown\`"
+    echo "$E_WRENCH Commit: \`pending\` _(will update after clone)_"
+  fi
+}
+
+fmt_llvm_link() {
+  local commit="$1"
+  if [[ -n "$commit" && "$commit" != "unknown" ]]; then
+    echo "$E_GEAR LLVM: [\`${commit:0:7}\`](https://github.com/llvm/llvm-project/commit/$commit)"
+  else
+    echo "$E_GEAR LLVM: \`unknown\`"
   fi
 }
 
@@ -116,7 +125,7 @@ case "$MESSAGE_TYPE" in
   started)
     MSG="$(fmt_header "CyreneClang Build #$RUN_NUMBER Started")"
     MSG="$MSG
-$E_CI Build #$RUN_NUMBER triggered"
+$E_CI *Build #$RUN_NUMBER triggered*"
     MSG="$MSG
 $(fmt_kv_raw "$E_PUSHPIN" "Branch" "$LLVM_BRANCH")"
     MSG="$MSG
@@ -131,7 +140,7 @@ $(fmt_kv_raw "$E_CALENDAR" "Date" "$BUILD_DATE")"
 $(fmt_kv_raw "$E_MEMO" "Patches" "$PATCH_COUNT pending")"
     MSG="$MSG
 $(fmt_section)
-$E_ROCKET *Building Clang $LLVM_BRANCH for Android kernels...*"
+$E_ROCKET *Building custom LLVM/Clang for Android kernel development*"
     MSG="$MSG
 $E_WAVE Queued at $(date -u +%H:%M:%S) UTC"
     MSG="$MSG
@@ -158,7 +167,7 @@ $E_WRENCH *Toolchain Info:*"
     MSG="$MSG
 $(fmt_kv_raw "$E_WRENCH" "Clang" "$CLANG_VERSION")"
     MSG="$MSG
-$(fmt_kv_raw "$E_GEAR" "LLVM" "$LLVM_COMMIT")"
+$(fmt_llvm_link "$LLVM_COMMIT")"
     MSG="$MSG
 $(fmt_kv_raw "$E_GEAR" "PGO" "$PGO_STR") | $(fmt_kv_raw "$E_DIRECT" "LTO" "$LTO_MODE")"
     MSG="$MSG
@@ -219,7 +228,7 @@ $E_LINK [View Full Changelog](https://github.com/$REPO/releases/tag/$RELEASE_TAG
     MSG="$MSG
 $E_PUSHPIN Branch: \`$LLVM_BRANCH\`"
     MSG="$MSG
-$(fmt_commit_link "$LLVM_COMMIT")"
+$(fmt_llvm_link "$LLVM_COMMIT")"
     MSG="$MSG
 $(fmt_kv_raw "$E_GEAR" "PGO" "$ENABLE_PGO") | $(fmt_kv_raw "$E_DIRECT" "LTO" "$LTO_MODE")"
     MSG="$MSG
@@ -290,7 +299,7 @@ $E_BUG *Full error log from failed build*"
 $(fmt_section)
 $E_PUSHPIN Branch: \`$LLVM_BRANCH\`"
     MSG="$MSG
-$(fmt_commit_link "$LLVM_COMMIT")"
+$(fmt_llvm_link "$LLVM_COMMIT")"
     MSG="$MSG
 $(fmt_kv_raw "$E_GEAR" "PGO" "$ENABLE_PGO") | $(fmt_kv_raw "$E_DIRECT" "LTO" "$LTO_MODE")"
     MSG="$MSG
