@@ -4,7 +4,7 @@
 set -euo pipefail
 
 # ─── Configuration ────────────────────────────────────────────────────────────
-LLVM_BRANCH="${LLVM_BRANCH:-main}"
+LLVM_BRANCH="${LLVM_BRANCH:-llvmorg-22.1.0}"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/toolchains/cyrene}"
 BUILD_DIR="${BUILD_DIR:-$(pwd)/build}"
 LLVM_DIR="${LLVM_DIR:-$(pwd)/llvm-project}"
