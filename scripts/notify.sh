@@ -233,36 +233,31 @@ $E_LINK [View Full Changelog](https://github.com/$REPO/releases/tag/$RELEASE_TAG
     if [[ -n "$ERROR_LOG" ]]; then
       ERROR_SNIPPET=$(echo "$ERROR_LOG" | tail -c 1500)
       ERROR_FIRST_LINE=$(echo "$ERROR_LOG" | grep -i "error\|fatal\|failed" | head -1 | head -c 120)
-    elif [[ -n "$ERROR_DUMP_FILE" && -f "$ERROR_DUMP_FILE" ]]; then
+    elif [[ -n "$ERROR_DUMP_FILE" && -f "$ERROR_DUMP_FILE" && -s "$ERROR_DUMP_FILE" ]]; then
       ERROR_SNIPPET=$(tail -c 1500 "$ERROR_DUMP_FILE" 2>/dev/null || true)
       ERROR_FIRST_LINE=$(grep -i "error\|fatal\|failed" "$ERROR_DUMP_FILE" 2>/dev/null | head -1 | head -c 120)
     fi
 
     MSG="$(fmt_header "Cyrene Clang Build #$RUN_NUMBER FAILED")"
     MSG="$MSG
-$E_PUSHPIN Branch: \`$LLVM_BRANCH\`"
-    MSG="$MSG
 $(fmt_cyrene_link "$CYRENE_COMMIT")"
+    MSG="$MSG
+$E_PUSHPIN Branch: \`$LLVM_BRANCH\`"
     MSG="$MSG
 $(fmt_llvm_link "$LLVM_COMMIT")"
     MSG="$MSG
 $(fmt_kv_raw "$E_GEAR" "PGO" "$ENABLE_PGO") | $(fmt_kv_raw "$E_DIRECT" "LTO" "$LTO_MODE")"
     MSG="$MSG
 $(fmt_kv_raw "$E_CALENDAR" "Date" "$BUILD_DATE")"
-
-    if [[ -n "$BUILD_STAGE" ]]; then
-      MSG="$MSG
-$E_MEMO Stage: \`$BUILD_STAGE\`"
-    fi
-    if [[ -n "$BUILD_DURATION" ]]; then
-      MSG="$MSG
-$E_STOPWATCH Duration: $BUILD_DURATION"
-    fi
+    MSG="$MSG
+$E_MEMO Stage: \`${BUILD_STAGE:-unknown}\`"
+    MSG="$MSG
+$E_STOPWATCH Duration: \`${BUILD_DURATION:-unknown}\`"
 
     if [[ -n "$ERROR_FIRST_LINE" ]]; then
       MSG="$MSG
 $(fmt_section)
-$E_BUG *First Error:*
+$E_BUG *Error:*
 \`\`\`
 $ERROR_FIRST_LINE
 \`\`\`"
@@ -283,10 +278,14 @@ $E_BULLET Check disk space and memory"
     if [[ -n "$ERROR_SNIPPET" ]]; then
       MSG="$MSG
 $(fmt_section)
-$E_MAGNIFY *Last 50 lines of build log:*
+$E_MAGNIFY *Build Log (last 50 lines):*
 \`\`\`
 $ERROR_SNIPPET
 \`\`\`"
+    else
+      MSG="$MSG
+$(fmt_section)
+$E_INFO _No error log available — build may have failed before logging started_"
     fi
 
     MSG="$MSG
@@ -303,7 +302,7 @@ $E_LINK [View Full Run #$RUN_NUMBER]($RUN_URL)"
       FULL_LOG="$ERROR_LOG"
       ERROR_FIRST_LINE=$(echo "$ERROR_LOG" | grep -i "error\|fatal\|failed" | head -1 | head -c 150)
     fi
-    if [[ -z "$FULL_LOG" && -n "$ERROR_DUMP_FILE" && -f "$ERROR_DUMP_FILE" ]]; then
+    if [[ -z "$FULL_LOG" && -n "$ERROR_DUMP_FILE" && -f "$ERROR_DUMP_FILE" && -s "$ERROR_DUMP_FILE" ]]; then
       FULL_LOG=$(tail -c 4000 "$ERROR_DUMP_FILE" 2>/dev/null || true)
       ERROR_FIRST_LINE=$(grep -i "error\|fatal\|failed" "$ERROR_DUMP_FILE" 2>/dev/null | head -1 | head -c 150)
     fi
@@ -313,24 +312,19 @@ $E_LINK [View Full Run #$RUN_NUMBER]($RUN_URL)"
 $E_BUG *Full error log from failed build*"
     MSG="$MSG
 $(fmt_section)
-$E_PUSHPIN Branch: \`$LLVM_BRANCH\`"
-    MSG="$MSG
 $(fmt_cyrene_link "$CYRENE_COMMIT")"
+    MSG="$MSG
+$E_PUSHPIN Branch: \`$LLVM_BRANCH\`"
     MSG="$MSG
 $(fmt_llvm_link "$LLVM_COMMIT")"
     MSG="$MSG
 $(fmt_kv_raw "$E_GEAR" "PGO" "$ENABLE_PGO") | $(fmt_kv_raw "$E_DIRECT" "LTO" "$LTO_MODE")"
     MSG="$MSG
 $(fmt_kv_raw "$E_DIRECT" "Targets" "$TARGETS")"
-
-    if [[ -n "$BUILD_STAGE" ]]; then
-      MSG="$MSG
-$E_MEMO Stage: \`$BUILD_STAGE\`"
-    fi
-    if [[ -n "$BUILD_DURATION" ]]; then
-      MSG="$MSG
-$E_STOPWATCH Duration: $BUILD_DURATION"
-    fi
+    MSG="$MSG
+$E_MEMO Stage: \`${BUILD_STAGE:-unknown}\`"
+    MSG="$MSG
+$E_STOPWATCH Duration: \`${BUILD_DURATION:-unknown}\`"
 
     if [[ -n "$ERROR_FIRST_LINE" ]]; then
       MSG="$MSG
@@ -341,12 +335,18 @@ $ERROR_FIRST_LINE
 \`\`\`"
     fi
 
-    MSG="$MSG
+    if [[ -n "$FULL_LOG" ]]; then
+      MSG="$MSG
 $(fmt_section)
 $E_MAGNIFY *Build Log (last 4000 chars):*
 \`\`\`
 $FULL_LOG
 \`\`\`"
+    else
+      MSG="$MSG
+$(fmt_section)
+$E_INFO _No error log available — build may have failed before logging started_"
+    fi
 
     MSG="$MSG
 $(fmt_section)
