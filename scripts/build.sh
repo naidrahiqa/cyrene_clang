@@ -10,6 +10,7 @@ BUILD_DIR="${BUILD_DIR:-$(pwd)/build}"
 LLVM_DIR="${LLVM_DIR:-$(pwd)/llvm-project}"
 JOBS="${JOBS:-$(nproc)}"
 ENABLE_PGO="${ENABLE_PGO:-true}"
+ENABLE_BOLT="${ENABLE_BOLT:-true}"
 PGO_WORKLOAD="${PGO_WORKLOAD:-sqlite}"  # "sqlite" (fast) or "kernel" (accurate)
 
 # Targets: AArch64 (Android), ARM (32-bit compat), X86 (host tools)
@@ -17,6 +18,9 @@ LLVM_TARGETS="AArch64;ARM;X86"
 
 # Projects to build — polly for loop vectorization
 LLVM_PROJECTS="clang;lld;compiler-rt;polly"
+
+# Vendor string — appended to clang version (e.g. "CyreneClang 22.1.0")
+CLANG_VENDOR="${CLANG_VENDOR:-CyreneClang}"
 
 # ─── Host Compiler Detection ──────────────────────────────────────────────
 detect_host_compiler() {
@@ -116,6 +120,7 @@ cmake_configure() {
     -DPOLLY_ENABLE_GPGPU_CODEGEN=OFF \
     -DLLVM_ENABLE_LIBCXX=ON \
     -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+    -DCLANG_VENDOR="$CLANG_VENDOR" \
     "$@"
 }
 
@@ -269,6 +274,118 @@ stage2_build() {
   cmake --install "$s2_build" 2>&1 | tee -a "$BUILD_DIR/build.log"
 }
 
+# ─── BOLT Post-Build Optimization ────────────────────────────────────────────
+# Binary Optimization and Layout Tool — reorders functions/data for better
+# cache locality. Typically yields 5-15% speedup on top of PGO + ThinLTO.
+apply_bolt() {
+  if [[ "$ENABLE_BOLT" != "true" ]]; then
+    return 0
+  fi
+
+  local clang_bin="$INSTALL_DIR/bin/clang"
+  local llvm_bolt="$INSTALL_DIR/bin/llvm-bolt"
+  local perf2bolt="$INSTALL_DIR/bin/perf2bolt"
+  local llvm_objcopy="$INSTALL_DIR/bin/llvm-objcopy"
+
+  # Check prerequisites
+  if [[ ! -x "$clang_bin" ]]; then
+    warn "clang binary not found, skipping BOLT"
+    return 0
+  fi
+  if [[ ! -x "$llvm_bolt" ]]; then
+    warn "llvm-bolt not found, skipping BOLT (build llvm-bolt first)"
+    return 0
+  fi
+  if ! command -v perf &>/dev/null; then
+    warn "perf not found, skipping BOLT (install linux-tools-generic)"
+    return 0
+  fi
+
+  log "Applying BOLT optimization to clang ..."
+
+  local bolt_dir="$BUILD_DIR/bolt"
+  mkdir -p "$bolt_dir"
+
+  # Step 1: Collect perf profile (run clang on a small workload)
+  log "  BOLT: Collecting perf profile ..."
+  local perf_data="$bolt_dir/clang.perf.data"
+
+  # Create a minimal C file to compile for profiling
+  local test_c="$bolt_dir/test.c"
+  cat > "$test_c" <<'TESTEOF'
+int main(void) { return 0; }
+TESTEOF
+
+  # Record perf events while compiling the test file
+  perf record -e cycles:u -j any,u -o "$perf_data" \
+    "$clang_bin" -c -O2 -o /dev/null "$test_c" 2>/dev/null || {
+    warn "BOLT: perf record failed, skipping"
+    return 0
+  }
+
+  if [[ ! -s "$perf_data" ]]; then
+    warn "BOLT: no perf data collected, skipping"
+    return 0
+  fi
+
+  # Step 2: Convert perf data to BOLT format
+  log "  BOLT: Converting perf data ..."
+  local fdata="$bolt_dir/clang.fdata"
+
+  if [[ -x "$perf2bolt" ]]; then
+    "$perf2bolt" -p "$perf_data" -o "$fdata" "$clang_bin" 2>/dev/null || {
+      warn "BOLT: perf2bolt conversion failed, skipping"
+      return 0
+    }
+  else
+    # Fallback: use llvm-bolt's built-in perf conversion
+    "$llvm_bolt" -perfdata="$perf_data" -read-only -o /dev/null "$clang_bin" 2>/dev/null || true
+    # If that doesn't work, skip BOLT
+    warn "BOLT: perf2bolt not found, skipping"
+    return 0
+  fi
+
+  # Step 3: Apply BOLT optimization
+  log "  BOLT: Optimizing clang binary ..."
+  local bolted_bin="$bolt_dir/clang.bolt"
+
+  "$llvm_bolt" "$clang_bin" \
+    -data="$fdata" \
+    -o "$bolted_bin" \
+    -reorder-blocks=ext-tsp \
+    -reorder-functions=hfsort+ \
+    -split-functions \
+    -split-all-cold \
+    -dyno-stats \
+    -icf=1 \
+    -use-gnu-stack \
+    2>&1 | tee -a "$BUILD_DIR/build.log" || {
+      warn "BOLT: optimization failed, skipping"
+      return 0
+    }
+
+  # Step 4: Replace original binary
+  if [[ -s "$bolted_bin" ]]; then
+    local original_size
+    original_size=$(stat -c%s "$clang_bin" 2>/dev/null || stat -f%z "$clang_bin" 2>/dev/null || echo 0)
+    local bolted_size
+    bolted_size=$(stat -c%s "$bolted_bin" 2>/dev/null || stat -f%z "$bolted_bin" 2>/dev/null || echo 0)
+
+    cp "$bolted_bin" "$clang_bin"
+    chmod +x "$clang_bin"
+
+    local saved_pct=0
+    if [[ "$original_size" -gt 0 ]]; then
+      saved_pct=$(( (original_size - bolted_size) * 100 / original_size ))
+    fi
+
+    log "  BOLT: Done! Size: ${original_size} → ${bolted_size} bytes (${saved_pct}% smaller)"
+  else
+    warn "BOLT: bolted binary is empty, skipping"
+    return 0
+  fi
+}
+
 # ─── Simple Build (no PGO) ────────────────────────────────────────────────────
 simple_build() {
   log "Building CyreneClang (no PGO) ..."
@@ -334,6 +451,7 @@ main() {
     stage1_build
     if collect_profiles; then
       stage2_build
+      apply_bolt
       BUILD_SUCCESS=true
     else
       warn "PGO profile collection failed. Falling back to non-PGO (simple) build."

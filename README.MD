@@ -8,14 +8,23 @@ A custom LLVM/Clang toolchain built for Android kernel compilation — balanced 
 |---|---|
 | **PGO** | 2-stage IR-based Profile-Guided Optimization |
 | **ThinLTO** | Applied to the toolchain itself for faster, leaner binaries |
+| **BOLT** | Binary Optimization and Layout Tool for 5-15% additional speedup |
 | **Polly** | Loop vectorization optimizer, usable via `-mllvm -polly` |
 | **Targets** | AArch64, ARM (32-bit), X86 (host tools) |
 | **Kernel support** | 4.x through 6.x (GKI + legacy trees) |
 | **Auto-sync** | Weekly rebuild from LLVM `main` |
-| **Distribution** | GitHub Releases + `clang-version.txt` manifest |
+| **Distribution** | GitHub Releases + `clang-version.txt` + `clang_notes.txt` manifests |
 | **Telegram notify** | Build status pushed to Telegram channel |
 
 ## Quick Start
+
+### One-liner install (recommended)
+
+```bash
+bash <(wget -qO- https://raw.githubusercontent.com/naidrahiqa/cyrene_clang/main/scripts/install.sh)
+```
+
+### Manual install
 
 ```bash
 # Get the latest manifest
@@ -28,6 +37,10 @@ wget "$DOWNLOAD_URL"
 # Extract
 mkdir -p $HOME/toolchains
 tar -I zstd -xf cyrene-clang-*.tar.zst -C $HOME/toolchains/
+
+# Fix ld symlink (if needed)
+cd $HOME/toolchains/cyrene/bin
+ln -sf $(which ld.lld) ld
 ```
 
 ## Kernel Integration
@@ -79,21 +92,24 @@ Works both when sourced (`.`) or executed directly.
 
 ```
 cyrene-clang/
-├── .github/workflows/build.yml   # CI/CD pipeline
+├── .github/workflows/
+│   ├── build.yml               # CI/CD pipeline (build + package + release)
+│   └── sync-patches.yml        # Auto-sync patches from LLVM stable
 ├── scripts/
-│   ├── build.sh                  # CMake configure + 2-stage PGO build
-│   ├── patch.sh                  # Apply patches from patches/
-│   ├── package.sh                # Compress + generate clang-version.txt
-│   ├── notify.sh                 # Telegram notification helper
-│   ├── kernel-lto.sh             # Kernel ThinLTO environment helper
-│   ├── sync-patches.sh           # Auto cherry-pick from LLVM stable
-│   └── check-compat.sh           # Compatibility validator
-├── patches/                      # Custom LLVM patches (format-patch style)
+│   ├── build.sh                # CMake configure + 2-stage PGO + BOLT
+│   ├── install.sh              # One-liner installer
+│   ├── patch.sh                # Apply patches from patches/
+│   ├── package.sh              # Compress + generate manifests
+│   ├── notify.sh               # Telegram notification helper
+│   ├── kernel-lto.sh           # Kernel ThinLTO environment helper
+│   ├── sync-patches.sh         # Auto cherry-pick from LLVM stable
+│   └── check-compat.sh         # Compatibility validator
+├── patches/                    # Custom LLVM patches (format-patch style)
 ├── docs/
-│   ├── SKILL.md                  # Full project reference for AI
-│   ├── feature-general.md        # General feature dev prompt template
-│   └── feature-specific.md       # Specific feature prompts (LTO, PGO, dll)
-├── PROMPT.MD                     # OpenCode AI system prompt
+│   ├── SKILL.md                # Full project reference for AI
+│   ├── feature-general.md      # General feature dev prompt template
+│   └── feature-specific.md     # Specific feature prompts (LTO, PGO, dll)
+├── PROMPT.MD                   # OpenCode AI system prompt
 ├── README.MD
 └── .gitignore
 ```
@@ -112,7 +128,9 @@ Environment variables:
 |---|---|---|
 | `LLVM_BRANCH` | `llvmorg-22.1.0` | LLVM branch or tag to build |
 | `ENABLE_PGO` | `true` | Enable 2-stage PGO build |
+| `ENABLE_BOLT` | `true` | Enable BOLT post-build optimization |
 | `PGO_WORKLOAD` | `sqlite` | PGO workload: `sqlite` (fast) or `kernel` (accurate) |
+| `CLANG_VENDOR` | `CyreneClang` | Vendor string in clang version output |
 | `INSTALL_DIR` | `~/toolchains/cyrene` | Where to install the toolchain |
 | `JOBS` | `nproc` | Parallel build jobs |
 
@@ -153,10 +171,51 @@ LLVM_COMMIT=abc1234
 BUILD_DATE=2024-11-01
 BUILD_HOST=GitHub Actions
 PGO=true
+BOLT=true
 LTO=Thin
 TARGETS=AArch64;ARM;X86
 TARBALL_SIZE=350M
+SHA256=192f1f685d917735a9a9dc93a034293cc98ae101879c1c46f2f03842de62673b
 DOWNLOAD_URL=https://github.com/naidrahiqa/cyrene_clang/releases/download/.../cyrene-clang.tar.zst
+```
+
+## Build Notes (`clang_notes.txt`)
+
+Structured metadata file (inspired by greenforce_clang):
+
+```
+[date]
+2026-06-15
+
+[clang-ver]
+Cirrus clang version 22.1.0 (https://github.com/llvm/llvm-project abc1234)
+
+[lld-ver]
+LLD 22.1.0 (https://github.com/llvm/llvm-project abc1234) (compatible with GNU linkers)
+
+[llvm-commit]
+https://github.com/llvm/llvm-project/commit/abc1234def56789
+
+[host-glibc]
+2.35
+
+[size]
+38M
+
+[pgo]
+true
+
+[bolt]
+true
+
+[lto]
+Thin
+
+[link-rel]
+https://github.com/naidrahiqa/cyrene_clang/releases/download/.../cyrene-clang.tar.zst
+
+[shasum]
+192f1f685d917735a9a9dc93a034293cc98ae101879c1c46f2f03842de62673b
 ```
 
 ## Auto Patch Sync
