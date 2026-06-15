@@ -12,10 +12,17 @@ Define SANITIZER_COMMON_REDEFINE_BUILTINS_IN_STD before the sanitizer
 include to skip the conflicting aliases, since nsan legitimately needs
 standard C headers.
 
+Also apply the define to nsan_allocator.cpp before all includes, since
+interception/interception.h pulls in sanitizer_redefine_builtins.h
+before nsan.h is reached. Additionally pass the define via CFLAGS in
+the CMakeLists.txt to protect all nsan translation units.
+
 Signed-off-by: CyreneClang <cyrene@cyreneclang.dev>
 ---
- compiler-rt/lib/nsan/nsan.h | 1 +
- 1 file changed, 1 insertion(+)
+ compiler-rt/lib/nsan/CMakeLists.txt    | 1 +
+ compiler-rt/lib/nsan/nsan.h            | 1 +
+ compiler-rt/lib/nsan/nsan_allocator.cpp | 1 +
+ 3 files changed, 3 insertions(+)
 
 diff --git a/compiler-rt/lib/nsan/nsan.h b/compiler-rt/lib/nsan/nsan.h
 index 896e5379dfc3..71633b0f3877 100644
@@ -24,10 +31,35 @@ index 896e5379dfc3..71633b0f3877 100644
 @@ -12,6 +12,7 @@
  #ifndef NSAN_H
  #define NSAN_H
- 
+  
 +#define SANITIZER_COMMON_REDEFINE_BUILTINS_IN_STD
  #include "sanitizer_common/sanitizer_internal_defs.h"
- 
+  
  using __sanitizer::sptr;
+diff --git a/compiler-rt/lib/nsan/nsan_allocator.cpp b/compiler-rt/lib/nsan/nsan_allocator.cpp
+index a3b2c4d5e6f7..b4c5d6e7f809 100644
+--- a/compiler-rt/lib/nsan/nsan_allocator.cpp
++++ b/compiler-rt/lib/nsan/nsan_allocator.cpp
+@@ -9,6 +9,7 @@
+ // NumericalStabilitySanitizer allocator.
+ //
+ //===----------------------------------------------------------------------===//
+  
++#define SANITIZER_COMMON_REDEFINE_BUILTINS_IN_STD
+ #include "nsan_allocator.h"
+ #include "interception/interception.h"
+ #include "nsan.h"
+diff --git a/compiler-rt/lib/nsan/CMakeLists.txt b/compiler-rt/lib/nsan/CMakeLists.txt
+index d4e5f6a7b8c9..e5f6a7b8c9d0 100644
+--- a/compiler-rt/lib/nsan/CMakeLists.txt
++++ b/compiler-rt/lib/nsan/CMakeLists.txt
+@@ -31,6 +31,7 @@
+  
+ set(NSAN_CFLAGS ${SANITIZER_COMMON_CFLAGS})
+ append_rtti_flag(OFF NSAN_CFLAGS)
++set(NSAN_CFLAGS ${NSAN_CFLAGS} -DSANITIZER_COMMON_REDEFINE_BUILTINS_IN_STD)
+  
+ set(NSAN_DYNAMIC_CFLAGS ${NSAN_CFLAGS})
+  
 -- 
 2.46.0

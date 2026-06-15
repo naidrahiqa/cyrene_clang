@@ -26,21 +26,50 @@ log "Applying patches to $LLVM_DIR ..."
 # churn), apply targeted sed fixups so the build never breaks on a patch
 # that we know is correct but doesn't apply cleanly.
 apply_nsan_gcc14_fallback() {
-  local nsan_h="$LLVM_DIR/compiler-rt/lib/nsan/nsan.h"
-  if [[ ! -f "$nsan_h" ]]; then
-    return 1
-  fi
-  # Already applied?
-  if grep -q 'SANITIZER_COMMON_REDEFINE_BUILTINS_IN_STD' "$nsan_h"; then
-    return 0
-  fi
-  # Insert the define right before the sanitizer include
-  if sed -i '/#include "sanitizer_common\/sanitizer_internal_defs.h"/i#define SANITIZER_COMMON_REDEFINE_BUILTINS_IN_STD' "$nsan_h"; then
-    if grep -q 'SANITIZER_COMMON_REDEFINE_BUILTINS_IN_STD' "$nsan_h"; then
-      log "    ✓ nsan GCC-14 fix applied via fallback sed"
-      return 0
+  local nsan_dir="$LLVM_DIR/compiler-rt/lib/nsan"
+  local applied=0
+
+  # ── Target 1: nsan.h ─ define before sanitizer_internal_defs include ────
+  local nsan_h="$nsan_dir/nsan.h"
+  if [[ -f "$nsan_h" ]] && ! grep -q 'SANITIZER_COMMON_REDEFINE_BUILTINS_IN_STD' "$nsan_h"; then
+    if sed -i '/#include "sanitizer_common\/sanitizer_internal_defs.h"/i#define SANITIZER_COMMON_REDEFINE_BUILTINS_IN_STD' "$nsan_h"; then
+      if grep -q 'SANITIZER_COMMON_REDEFINE_BUILTINS_IN_STD' "$nsan_h"; then
+        log "    ✓ nsan.h GCC-14 fix applied via fallback sed"
+        applied=1
+      fi
     fi
+  elif [[ -f "$nsan_h" ]] && grep -q 'SANITIZER_COMMON_REDEFINE_BUILTINS_IN_STD' "$nsan_h"; then
+    applied=1
   fi
+
+  # ── Target 2: nsan_allocator.cpp ─ define before first include ───────────
+  local nsan_alloc="$nsan_dir/nsan_allocator.cpp"
+  if [[ -f "$nsan_alloc" ]] && ! grep -q 'SANITIZER_COMMON_REDEFINE_BUILTINS_IN_STD' "$nsan_alloc"; then
+    if sed -i '0,/^#include/{/^#include/i#define SANITIZER_COMMON_REDEFINE_BUILTINS_IN_STD
+}' "$nsan_alloc"; then
+      if grep -q 'SANITIZER_COMMON_REDEFINE_BUILTINS_IN_STD' "$nsan_alloc"; then
+        log "    ✓ nsan_allocator.cpp GCC-14 fix applied via fallback sed"
+        applied=1
+      fi
+    fi
+  elif [[ -f "$nsan_alloc" ]] && grep -q 'SANITIZER_COMMON_REDEFINE_BUILTINS_IN_STD' "$nsan_alloc"; then
+    applied=1
+  fi
+
+  # ── Target 3: CMakeLists.txt ─ add -D flag to NSAN_CFLAGS ────────────────
+  local nsan_cmake="$nsan_dir/CMakeLists.txt"
+  if [[ -f "$nsan_cmake" ]] && ! grep -q 'SANITIZER_COMMON_REDEFINE_BUILTINS_IN_STD' "$nsan_cmake"; then
+    if sed -i '/append_rtti_flag(OFF NSAN_CFLAGS)/a set(NSAN_CFLAGS ${NSAN_CFLAGS} -DSANITIZER_COMMON_REDEFINE_BUILTINS_IN_STD)' "$nsan_cmake"; then
+      if grep -q 'SANITIZER_COMMON_REDEFINE_BUILTINS_IN_STD' "$nsan_cmake"; then
+        log "    ✓ nsan CMakeLists.txt GCC-14 fix applied via fallback sed"
+        applied=1
+      fi
+    fi
+  elif [[ -f "$nsan_cmake" ]] && grep -q 'SANITIZER_COMMON_REDEFINE_BUILTINS_IN_STD' "$nsan_cmake"; then
+    applied=1
+  fi
+
+  [[ $applied -eq 1 ]] && return 0
   return 1
 }
 
