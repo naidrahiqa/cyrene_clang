@@ -17,6 +17,7 @@ GRN="\033[0;32m"; YLW="\033[0;33m"; RED="\033[0;31m"; BLD="\033[1m"; RST="\033[0
 ok()   { echo -e " ${GRN}✓${RST} $1"; ((PASS++)) || true; }
 warn() { echo -e " ${YLW}⚠${RST} $1"; ((WARN++)) || true; }
 err()  { echo -e " ${RED}✗${RST} $1"; ((FAIL++)) || true; }
+info() { echo -e "   $1"; }
 
 echo -e "${BLD}CyreneClang Compatibility Check${RST}"
 echo ""

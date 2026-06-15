@@ -96,8 +96,4 @@ main() {
   log "Ready. Run your kernel make command now."
 }
 
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-  main
-else
-  main
-fi
+main
