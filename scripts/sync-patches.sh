@@ -92,8 +92,10 @@ main() {
   
   # Ensure LLVM source is available
   if [[ ! -d "$LLVM_DIR/.git" ]]; then
-    log "Cloning LLVM (--depth=1) for commit lookup..."
-    git clone --depth=1 "$LLVM_REMOTE" "$LLVM_DIR"
+    log "Cloning LLVM for commit lookup..."
+    git clone --filter=blob:none --no-checkout "$LLVM_REMOTE" "$LLVM_DIR"
+    git -C "$LLVM_DIR" fetch --tags --depth=1 origin "refs/tags/llvmorg-*:refs/tags/llvmorg-*" 2>/dev/null || true
+    git -C "$LLVM_DIR" checkout HEAD 2>/dev/null || true
   fi
   
   # Try to find commits between versions
