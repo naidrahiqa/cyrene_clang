@@ -1,27 +1,58 @@
 #!/usr/bin/env bash
-# CyreneClang — Auto Cherry-Pick Patches from LLVM Stable
-# Reads patches/stable-picks.txt, fetches each commit from LLVM remote,
-# and creates .patch files in patches/ with format: NNNN-<hash>-<subject>.patch
+# Cyrene Clang — Auto Sync Patches from LLVM Stable
+# Automatically finds relevant commits between current LLVM version
+# and latest stable release, then generates .patch files.
 set -euo pipefail
 
 LLVM_DIR="${LLVM_DIR:-$(pwd)/llvm-project}"
 PATCHES_DIR="$(cd "$(dirname "$0")/../patches" && pwd)"
-CONFIG_FILE="$PATCHES_DIR/stable-picks.txt"
 LLVM_REMOTE="https://github.com/llvm/llvm-project.git"
+BUILD_SCRIPT="$(cd "$(dirname "$0")" && pwd)/build.sh"
 
 log() { echo -e "\033[1;32m[Sync-Patches]\033[0m $*"; }
 warn() { echo -e "\033[1;33m[WARN]\033[0m $*" >&2; }
 die() { echo -e "\033[1;31m[ERROR]\033[0m $*" >&2; exit 1; }
 
-[[ -f "$CONFIG_FILE" ]] || die "Config not found: $CONFIG_FILE"
-
 mkdir -p "$PATCHES_DIR"
 
-# ─── Ensure LLVM source is available ──────────────────────────────────────
-if [[ ! -d "$LLVM_DIR/.git" ]]; then
-  log "Cloning LLVM (--depth=1) for commit lookup..."
-  git clone --depth=1 "$LLVM_REMOTE" "$LLVM_DIR"
-fi
+# ─── Get current LLVM version from build.sh ────────────────────────────────
+get_current_version() {
+  local branch
+  branch=$(grep -oP 'LLVM_BRANCH:-\K[^}]+' "$BUILD_SCRIPT" 2>/dev/null || echo "main")
+  echo "$branch"
+}
+
+# ─── Get latest LLVM stable release tag ────────────────────────────────────
+get_latest_release() {
+  # Fetch latest release tag from GitHub API
+  local latest
+  latest=$(curl -s "https://api.github.com/repos/llvm/llvm-project/releases/latest" 2>/dev/null | \
+    grep -oP '"tag_name":\s*"\K[^"]+' || echo "")
+  
+  if [[ -z "$latest" ]]; then
+    # Fallback: try to get the latest release tag from git
+    latest=$(git ls-remote --tags "$LLVM_REMOTE" 2>/dev/null | \
+      grep -oP 'refs/tags/\Kllvmorg-\d+\.\d+\.\d+$' | \
+      sort -V | tail -1 || echo "")
+  fi
+  
+  echo "$latest"
+}
+
+# ─── Get commits between two tags ──────────────────────────────────────────
+get_commits_between() {
+  local from="$1"
+  local to="$2"
+  
+  # Fetch both tags
+  git -C "$LLVM_DIR" fetch origin "refs/tags/$from:refs/tags/$from" 2>/dev/null || true
+  git -C "$LLVM_DIR" fetch origin "refs/tags/$to:refs/tags/$to" 2>/dev/null || true
+  
+  # Get commits between them
+  git -C "$LLVM_DIR" log --oneline "refs/tags/$from..refs/tags/$to" 2>/dev/null | \
+    grep -iE '(fix|bug|patch|revert|crash|security|regression|backport)' | \
+    head -20 || echo ""
+}
 
 # ─── Get next patch number ────────────────────────────────────────────────
 next_number() {
@@ -36,62 +67,113 @@ next_number() {
   echo $((max + 1))
 }
 
-SKIPPED=0
-APPLIED=0
-FAILED=0
-
-# ─── Process each commit hash ─────────────────────────────────────────────
-while IFS= read -r line; do
-  line="${line%%#*}"  # strip comments
-  line="${line// /}"   # strip whitespace
-  [[ -z "$line" ]] && continue
-
-  commit="$line"
-  log "Processing commit: $commit"
-
-  # Skip if patch already exists
-  if ls "$PATCHES_DIR"/*-"${commit:0:7}"*.patch &>/dev/null 2>&1; then
-    log "  → Skipped (already exists)"
-    ((SKIPPED++)) || true
-    continue
+# ─── Main ──────────────────────────────────────────────────────────────────
+main() {
+  log "Checking LLVM versions..."
+  
+  local current_version
+  current_version=$(get_current_version)
+  log "Current version: $current_version"
+  
+  local latest_release
+  latest_release=$(get_latest_release)
+  
+  if [[ -z "$latest_release" ]]; then
+    die "Could not fetch latest LLVM release"
   fi
-
-  # Fetch the specific commit
-  if ! git -C "$LLVM_DIR" fetch origin "$commit" 2>/dev/null; then
-    warn "  → Failed to fetch $commit — remote may not support partial fetch"
-    ((FAILED++)) || true
-    continue
+  
+  log "Latest release: $latest_release"
+  
+  # Check if we're already on the latest
+  if [[ "$current_version" == "$latest_release" ]]; then
+    log "Already on latest release ($latest_release), checking for backport commits..."
+    # Still check for commits that might have been backported
   fi
-
-  # Generate subject line for filename
-  local subject
-  subject=$(git -C "$LLVM_DIR" log -1 --format=%s "$commit" 2>/dev/null | \
-    sed 's/[^a-zA-Z0-9._-]/_/g' | cut -c1-60)
-
-  local num
-  num=$(next_number)
-  local patch_file="$PATCHES_DIR/$(printf '%04d' "$num")-${commit:0:7}-${subject:0:50}.patch"
-
-  if git -C "$LLVM_DIR" format-patch -1 "$commit" -o "$PATCHES_DIR" 2>/dev/null; then
-    # Rename the generated file to our format
-    local gen_file
-    gen_file=$(ls -t "$PATCHES_DIR"/*.patch 2>/dev/null | head -1)
-    if [[ -n "$gen_file" && "$gen_file" != "$patch_file" ]]; then
-      mv "$gen_file" "$patch_file"
-    fi
-    log "  → Created: $(basename "$patch_file")"
-    ((APPLIED++)) || true
+  
+  # Ensure LLVM source is available
+  if [[ ! -d "$LLVM_DIR/.git" ]]; then
+    log "Cloning LLVM (--depth=1) for commit lookup..."
+    git clone --depth=1 "$LLVM_REMOTE" "$LLVM_DIR"
+  fi
+  
+  # Try to find commits between versions
+  local commits
+  if [[ "$current_version" != "main" && "$current_version" != "$latest_release" ]]; then
+    log "Finding commits between $current_version and $latest_release..."
+    commits=$(get_commits_between "$current_version" "$latest_release")
   else
-    warn "  → Failed to create patch for $commit"
-    ((FAILED++)) || true
+    log "Finding recent bug fix commits from main..."
+    commits=$(git -C "$LLVM_DIR" log --oneline -100 HEAD 2>/dev/null | \
+      grep -iE '(fix|bug|patch|revert|crash|security|regression)' | \
+      head -20 || echo "")
   fi
-done < "$CONFIG_FILE"
+  
+  if [[ -z "$commits" ]]; then
+    log "No relevant commits found"
+    echo "applied=0" >> "${GITHUB_OUTPUT:-/dev/null}"
+    echo "skipped=0" >> "${GITHUB_OUTPUT:-/dev/null}"
+    echo "failed=0" >> "${GITHUB_OUTPUT:-/dev/null}"
+    return 0
+  fi
+  
+  log "Found relevant commits:"
+  echo "$commits"
+  
+  # Process each commit
+  local SKIPPED=0 APPLIED=0 FAILED=0
+  
+  while IFS= read -r line; do
+    local commit_hash commit_msg
+    commit_hash=$(echo "$line" | awk '{print $1}')
+    commit_msg=$(echo "$line" | cut -d' ' -f2-)
+    
+    [[ -z "$commit_hash" ]] && continue
+    
+    log "Processing: $commit_msg"
+    
+    # Skip if patch already exists
+    if ls "$PATCHES_DIR"/*-"${commit_hash:0:7}"*.patch &>/dev/null 2>&1; then
+      log "  → Skipped (already exists)"
+      ((SKIPPED++)) || true
+      continue
+    fi
+    
+    # Fetch the specific commit
+    if ! git -C "$LLVM_DIR" fetch origin "$commit_hash" 2>/dev/null; then
+      warn "  → Failed to fetch $commit_hash"
+      ((FAILED++)) || true
+      continue
+    fi
+    
+    # Generate patch
+    local subject
+    subject=$(echo "$commit_msg" | sed 's/[^a-zA-Z0-9._-]/_/g' | cut -c1-60)
+    
+    local num
+    num=$(next_number)
+    local patch_file="$PATCHES_DIR/$(printf '%04d' "$num")-${commit_hash:0:7}-${subject:0:50}.patch"
+    
+    if git -C "$LLVM_DIR" format-patch -1 "$commit_hash" -o "$PATCHES_DIR" 2>/dev/null; then
+      local gen_file
+      gen_file=$(ls -t "$PATCHES_DIR"/*.patch 2>/dev/null | head -1)
+      if [[ -n "$gen_file" && "$gen_file" != "$patch_file" ]]; then
+        mv "$gen_file" "$patch_file"
+      fi
+      log "  → Created: $(basename "$patch_file")"
+      ((APPLIED++)) || true
+    else
+      warn "  → Failed to create patch"
+      ((FAILED++)) || true
+    fi
+  done <<< "$commits"
+  
+  echo ""
+  log "Summary: $APPLIED applied, $SKIPPED skipped, $FAILED failed"
+  
+  # Output for GitHub Actions
+  echo "applied=$APPLIED" >> "${GITHUB_OUTPUT:-/dev/null}"
+  echo "skipped=$SKIPPED" >> "${GITHUB_OUTPUT:-/dev/null}"
+  echo "failed=$FAILED" >> "${GITHUB_OUTPUT:-/dev/null}"
+}
 
-# ─── Summary ──────────────────────────────────────────────────────────────
-echo ""
-log "Summary: $APPLIED applied, $SKIPPED skipped, $FAILED failed"
-
-# Output for GitHub Actions
-echo "applied=$APPLIED" >> "${GITHUB_OUTPUT:-/dev/null}"
-echo "skipped=$SKIPPED" >> "${GITHUB_OUTPUT:-/dev/null}"
-echo "failed=$FAILED" >> "${GITHUB_OUTPUT:-/dev/null}"
+main "$@"
