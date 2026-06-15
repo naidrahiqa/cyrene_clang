@@ -49,6 +49,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Count patches
+        run: echo "PATCH_COUNT=$(ls -1 patches/*.patch 2>/dev/null | wc -l)" >> "$GITHUB_ENV"
+
       - name: Notify build started
         run: bash scripts/notify.sh started
 
