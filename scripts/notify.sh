@@ -2,7 +2,7 @@
 # Cyrene Clang — Enhanced Telegram Notification Script
 # Sends build status notifications via Telegram Bot API with rich formatting,
 # build metadata, and changelog support.
-# Usage: ./notify.sh <started|success|failure|changelog>
+# Usage: ./notify.sh <started|success|failure|error_dump|changelog|release>
 set -euo pipefail
 
 BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
@@ -29,6 +29,7 @@ send_msg_to() {
     -d disable_web_page_preview=true > /dev/null 2>&1 || true
 }
 
+# ─── Build metadata ───────────────────────────────────────────────────────────
 RUN_NUMBER="${GITHUB_RUN_NUMBER:-local}"
 RUN_ID="${GITHUB_RUN_ID:-0}"
 REPO="${GITHUB_REPOSITORY:-naidrahiqa/cyrene_clang}"
@@ -53,110 +54,69 @@ TARGETS="${LLVM_TARGETS:-AArch64;ARM;X86}"
 ERROR_DUMP_CHAT_ID="${ERROR_DUMP_CHAT_ID:-}"
 ERROR_DUMP_FILE="${ERROR_DUMP_FILE:-}"
 
-# Emoji constants using $'...' for proper Unicode byte interpretation
-E_TOOLS=$'\xF0\x9F\x9B\xA0'       # 🛠
-E_PUSHPIN=$'\xF0\x9F\x93\x8C'     # 📌
-E_WRENCH=$'\xF0\x9F\x94\xA7'      # 🔧
-E_GEAR=$'\xE2\x9A\x99\xEF\xB8\x8F' # ⚙️
-E_DIRECT=$'\xF0\x9F\x8E\xAF'      # 🎯
-E_TARGET=$'\xF0\x9F\x94\xA5'      # 🔥
-E_CALENDAR=$'\xF0\x9F\x93\x86'    # 📆
-E_MEMO=$'\xF0\x9F\x93\x9D'        # 📝
-E_LINK=$'\xF0\x9F\x94\x97'        # 🔗
-E_CHECK=$'\xE2\x9C\x85'           # ✅
-E_CROSS=$'\xE2\x9D\x8C'           # ❌
-E_CLOCK=$'\xF0\x9F\x95\x90'       # 🕐
-E_PACKAGE=$'\xF0\x9F\x93\xA6'     # 📦
-E_STOPWATCH=$'\xE2\x8F\xB1'       # ⏱
-E_CLIPBOARD=$'\xF0\x9F\x93\x8B'   # 📋
-E_BULLET=$'\xE2\x80\xA2'          # •
-E_LINE=$'\xE2\x94\x81'            # ━
-E_ROCKET=$'\xF0\x9F\x9A\x80'      # 🚀
-E_FIRE=$'\xF0\x9F\x94\xA5'        # 🔥
-E_HAMMER=$'\xF0\x9F\x94\xA8'      # 🔨
-E_LIGHTNING=$'\xE2\x9A\xA1'       # ⚡
-E_WARNING=$'\xE2\x9A\xA0\xEF\xB8\x8F' # ⚠️
-E_INFO=$'\xE2\x84\xB9'            # ℹ️
-E_BUG=$'\xF0\x9F\x90\x9B'         # 🐛
-E_MAGNIFY=$'\xF0\x9F\x94\x8D'     # 🔍
-E_ARTIFICIAL=$'\xF0\x9F\xA4\x96'  # 🤖
-E_WAVE=$'\xF0\x9F\x91\x8B'        # 👋
-E_GITHUB=$'\xE2\x9C\x93'          # ✓ (using check as github stand-in)
-E_CI=$'\xF0\x9F\x9B\xA0'         # 🛠
+# ─── Formatting helpers ───────────────────────────────────────────────────────
+LINE="━━━━━━━━━━━━━━━━━━━━"
 
-fmt_section() {
-  echo "$E_LINE$E_LINE$E_LINE$E_LINE$E_LINE$E_LINE$E_LINE$E_LINE$E_LINE$E_LINE$E_LINE$E_LINE$E_LINE$E_LINE$E_LINE$E_LINE$E_LINE$E_LINE$E_LINE$E_LINE"
-}
-
-fmt_header() {
-  local title="$1"
-  echo "$E_ARTIFICIAL  *$title*
-$(fmt_section)"
-}
-
-fmt_kv() {
-  local icon="$1" label="$2" value="$3"
-  echo "$icon $label: \`$value\`"
-}
-
-fmt_kv_raw() {
-  local icon="$1" label="$2" value="$3"
-  echo "$icon $label: $value"
-}
+fmt_section() { echo "$LINE"; }
+fmt_header() { echo "🤖 *$1*
+$LINE"; }
+fmt_kv() { echo "$1 $2: \`$3\`"; }
+fmt_kv_raw() { echo "$1 $2: $3"; }
 
 fmt_commit_link() {
   local commit="$1"
   if [[ -n "$commit" && "$commit" != "unknown" ]]; then
-    echo "$E_WRENCH Commit: [\`${commit:0:7}\`](https://github.com/llvm/llvm-project/commit/$commit)"
+    echo "🔧 Commit: [\`${commit:0:7}\`](https://github.com/llvm/llvm-project/commit/$commit)"
   else
-    echo "$E_WRENCH Commit: \`pending\` _(will update after clone)_"
+    echo "🔧 Commit: \`pending\` _(will update after clone)_"
   fi
 }
 
 fmt_llvm_link() {
   local commit="$1"
   if [[ -n "$commit" && "$commit" != "unknown" ]]; then
-    echo "$E_GEAR LLVM: [\`${commit:0:7}\`](https://github.com/llvm/llvm-project/commit/$commit)"
+    echo "⚙️ LLVM: [\`${commit:0:7}\`](https://github.com/llvm/llvm-project/commit/$commit)"
   else
-    echo "$E_GEAR LLVM: \`unknown\`"
+    echo "⚙️ LLVM: \`unknown\`"
   fi
 }
 
 fmt_cyrene_link() {
   local commit="$1"
   if [[ -n "$commit" && "$commit" != "unknown" ]]; then
-    echo "$E_WRENCH Cyrene Clang: [\`${commit:0:7}\`](https://github.com/$REPO/commit/$commit)"
+    echo "🔧 Cyrene Clang: [\`${commit:0:7}\`](https://github.com/$REPO/commit/$commit)"
   else
-    echo "$E_WRENCH Cyrene Clang: \`unknown\`"
+    echo "🔧 Cyrene Clang: \`unknown\`"
   fi
 }
 
+# ─── Message handlers ─────────────────────────────────────────────────────────
 case "$MESSAGE_TYPE" in
   started)
     MSG="$(fmt_header "Cyrene Clang Build #$RUN_NUMBER Started")"
     MSG="$MSG
-$E_CI *Build #$RUN_NUMBER triggered*"
+🛠 *Build #$RUN_NUMBER triggered*"
     MSG="$MSG
 $(fmt_cyrene_link "$CYRENE_COMMIT")"
     MSG="$MSG
-$(fmt_kv_raw "$E_PUSHPIN" "Branch" "$LLVM_BRANCH")"
+📌 Branch: \`$LLVM_BRANCH\`"
     MSG="$MSG
 $(fmt_llvm_link "$LLVM_COMMIT")"
     MSG="$MSG
-$(fmt_kv_raw "$E_GEAR" "PGO" "$ENABLE_PGO") | $(fmt_kv_raw "$E_DIRECT" "LTO" "$LTO_MODE")"
+⚙️ PGO: $ENABLE_PGO | 🎯 LTO: $LTO_MODE"
     MSG="$MSG
-$(fmt_kv_raw "$E_TARGET" "Targets" "$TARGETS")"
+🔥 Targets: $TARGETS"
     MSG="$MSG
-$(fmt_kv_raw "$E_CALENDAR" "Date" "$BUILD_DATE")"
+📆 Date: $BUILD_DATE"
     MSG="$MSG
-$(fmt_kv_raw "$E_MEMO" "Patches" "$PATCH_COUNT pending")"
+📝 Patches: $PATCH_COUNT pending"
     MSG="$MSG
 $(fmt_section)
-$E_ROCKET *Building custom LLVM/Clang for Android kernel development*"
+🚀 *Building custom LLVM/Clang for Android kernel development*"
     MSG="$MSG
-$E_WAVE Queued at $(date -u +%H:%M:%S) UTC"
+👋 Queued at $(date -u +%H:%M:%S) UTC"
     MSG="$MSG
-$E_LINK [View Run #$RUN_NUMBER]($RUN_URL)"
+🔗 [View Run #$RUN_NUMBER]($RUN_URL)"
     send_msg "$MSG"
     ;;
 
@@ -166,63 +126,62 @@ $E_LINK [View Run #$RUN_NUMBER]($RUN_URL)"
       CHANGELOG_TEXT=$(head -c 1500 "$CHANGELOG_FILE" 2>/dev/null || true)
     fi
 
-    PGO_STR="$E_CHECK Enabled"
-    [[ "$ENABLE_PGO" == "false" ]] && PGO_STR="$E_CROSS Disabled"
+    PGO_STR="✅ Enabled"
+    [[ "$ENABLE_PGO" == "false" ]] && PGO_STR="❌ Disabled"
 
     MSG="$(fmt_header "Cyrene Clang Build #$RUN_NUMBER SUCCEEDED")"
     MSG="$MSG
-$E_CHECK *Build completed successfully!*
-$E_STOPWATCH Duration: \`$BUILD_DURATION\`"
+✅ *Build completed successfully!*
+⏱ Duration: \`$BUILD_DURATION\`"
     MSG="$MSG
 $(fmt_section)
-$E_WRENCH *Toolchain Info:*"
+🔧 *Toolchain Info:*"
     MSG="$MSG
-$(fmt_kv_raw "$E_WRENCH" "Clang" "$CLANG_VERSION")"
+🔧 Clang: $CLANG_VERSION"
     MSG="$MSG
 $(fmt_cyrene_link "$CYRENE_COMMIT")"
     MSG="$MSG
 $(fmt_llvm_link "$LLVM_COMMIT")"
     MSG="$MSG
-$(fmt_kv_raw "$E_GEAR" "PGO" "$PGO_STR") | $(fmt_kv_raw "$E_DIRECT" "LTO" "$LTO_MODE")"
+⚙️ PGO: $PGO_STR | 🎯 LTO: $LTO_MODE"
     MSG="$MSG
-$(fmt_kv_raw "$E_PUSHPIN" "Branch" "$LLVM_BRANCH")"
+📌 Branch: \`$LLVM_BRANCH\`"
     MSG="$MSG
-$(fmt_kv_raw "$E_CALENDAR" "Date" "$BUILD_DATE")"
+📆 Date: $BUILD_DATE"
 
     MSG="$MSG
 $(fmt_section)
-$E_PACKAGE *Release Package:*"
+📦 *Release Package:*"
     MSG="$MSG
-$(fmt_kv_raw "$E_PACKAGE" "Tag" "${RELEASE_TAG:-none}")"
+📦 Tag: ${RELEASE_TAG:-none}"
     MSG="$MSG
-$(fmt_kv_raw "$E_PACKAGE" "File" "$TARBALL_NAME")"
+📦 File: $TARBALL_NAME"
     MSG="$MSG
-$(fmt_kv_raw "$E_PACKAGE" "Size" "$PACKAGE_SIZE")"
+📦 Size: $PACKAGE_SIZE"
 
     RELEASE_URL="https://github.com/$REPO/releases/tag/$RELEASE_TAG"
     if [[ -n "$RELEASE_TAG" ]]; then
       MSG="$MSG
 $(fmt_section)
-$E_ROCKET *Quick Download:*
+🚀 *Quick Download:*
 \`\`\`
 wget $RELEASE_URL/download/$RELEASE_TAG/$TARBALL_NAME
 \`\`\`"
       MSG="$MSG
-$E_LINK [View Release]($RELEASE_URL)"
+🔗 [View Release]($RELEASE_URL)"
     fi
 
     MSG="$MSG
-$E_LINK [View Run #$RUN_NUMBER]($RUN_URL)"
+🔗 [View Run #$RUN_NUMBER]($RUN_URL)"
     send_msg "$MSG"
 
     if [[ -n "$CHANGELOG_TEXT" ]]; then
-      E_DASH=$'\xE2\x80\x94'
       CHANGELOG_MSG="$(fmt_header "Build #$RUN_NUMBER Changelog")"
       CHANGELOG_MSG="$CHANGELOG_MSG
 $CHANGELOG_TEXT"
       CHANGELOG_MSG="$CHANGELOG_MSG
 $(fmt_section)
-$E_LINK [View Full Changelog](https://github.com/$REPO/releases/tag/$RELEASE_TAG)"
+🔗 [View Full Changelog](https://github.com/$REPO/releases/tag/$RELEASE_TAG)"
       send_msg "$CHANGELOG_MSG"
     fi
     ;;
@@ -242,22 +201,22 @@ $E_LINK [View Full Changelog](https://github.com/$REPO/releases/tag/$RELEASE_TAG
     MSG="$MSG
 $(fmt_cyrene_link "$CYRENE_COMMIT")"
     MSG="$MSG
-$E_PUSHPIN Branch: \`$LLVM_BRANCH\`"
+📌 Branch: \`$LLVM_BRANCH\`"
     MSG="$MSG
 $(fmt_llvm_link "$LLVM_COMMIT")"
     MSG="$MSG
-$(fmt_kv_raw "$E_GEAR" "PGO" "$ENABLE_PGO") | $(fmt_kv_raw "$E_DIRECT" "LTO" "$LTO_MODE")"
+⚙️ PGO: $ENABLE_PGO | 🎯 LTO: $LTO_MODE"
     MSG="$MSG
-$(fmt_kv_raw "$E_CALENDAR" "Date" "$BUILD_DATE")"
+📆 Date: $BUILD_DATE"
     MSG="$MSG
-$E_MEMO Stage: \`${BUILD_STAGE:-unknown}\`"
+📝 Stage: \`${BUILD_STAGE:-unknown}\`"
     MSG="$MSG
-$E_STOPWATCH Duration: \`${BUILD_DURATION:-unknown}\`"
+⏱ Duration: \`${BUILD_DURATION:-unknown}\`"
 
     if [[ -n "$ERROR_FIRST_LINE" ]]; then
       MSG="$MSG
 $(fmt_section)
-$E_BUG *Error:*
+🐛 *Error:*
 \`\`\`
 $ERROR_FIRST_LINE
 \`\`\`"
@@ -265,32 +224,32 @@ $ERROR_FIRST_LINE
 
     MSG="$MSG
 $(fmt_section)
-$E_LIGHTNING *Quick Fix Suggestions:*"
+⚡ *Quick Fix Suggestions:*"
     MSG="$MSG
-$E_BULLET Check if LLVM branch \`$LLVM_BRANCH\` exists"
+• Check if LLVM branch \`$LLVM_BRANCH\` exists"
     MSG="$MSG
-$E_BULLET Verify patch compatibility with upstream"
+• Verify patch compatibility with upstream"
     MSG="$MSG
-$E_BULLET Review build log for missing dependencies"
+• Review build log for missing dependencies"
     MSG="$MSG
-$E_BULLET Check disk space and memory"
+• Check disk space and memory"
 
     if [[ -n "$ERROR_SNIPPET" ]]; then
       MSG="$MSG
 $(fmt_section)
-$E_MAGNIFY *Build Log (last 50 lines):*
+🔍 *Build Log (last 50 lines):*
 \`\`\`
 $ERROR_SNIPPET
 \`\`\`"
     else
       MSG="$MSG
 $(fmt_section)
-$E_INFO _No error log available — build may have failed before logging started_"
+ℹ️ _No error log available — build may have failed before logging started_"
     fi
 
     MSG="$MSG
 $(fmt_section)
-$E_LINK [View Full Run #$RUN_NUMBER]($RUN_URL)"
+🔗 [View Full Run #$RUN_NUMBER]($RUN_URL)"
     send_msg "$MSG"
     ;;
 
@@ -307,29 +266,29 @@ $E_LINK [View Full Run #$RUN_NUMBER]($RUN_URL)"
       ERROR_FIRST_LINE=$(grep -i "error\|fatal\|failed" "$ERROR_DUMP_FILE" 2>/dev/null | head -1 | head -c 150)
     fi
 
-    MSG="$(fmt_header "Cyrene Clang Build #$RUN_NUMBER $E_DASH Error Dump")"
+    MSG="$(fmt_header "Cyrene Clang Build #$RUN_NUMBER — Error Dump")"
     MSG="$MSG
-$E_BUG *Full error log from failed build*"
+🐛 *Full error log from failed build*"
     MSG="$MSG
 $(fmt_section)
 $(fmt_cyrene_link "$CYRENE_COMMIT")"
     MSG="$MSG
-$E_PUSHPIN Branch: \`$LLVM_BRANCH\`"
+📌 Branch: \`$LLVM_BRANCH\`"
     MSG="$MSG
 $(fmt_llvm_link "$LLVM_COMMIT")"
     MSG="$MSG
-$(fmt_kv_raw "$E_GEAR" "PGO" "$ENABLE_PGO") | $(fmt_kv_raw "$E_DIRECT" "LTO" "$LTO_MODE")"
+⚙️ PGO: $ENABLE_PGO | 🎯 LTO: $LTO_MODE"
     MSG="$MSG
-$(fmt_kv_raw "$E_DIRECT" "Targets" "$TARGETS")"
+🎯 Targets: $TARGETS"
     MSG="$MSG
-$E_MEMO Stage: \`${BUILD_STAGE:-unknown}\`"
+📝 Stage: \`${BUILD_STAGE:-unknown}\`"
     MSG="$MSG
-$E_STOPWATCH Duration: \`${BUILD_DURATION:-unknown}\`"
+⏱ Duration: \`${BUILD_DURATION:-unknown}\`"
 
     if [[ -n "$ERROR_FIRST_LINE" ]]; then
       MSG="$MSG
 $(fmt_section)
-$E_LIGHTNING *First Error:*
+⚡ *First Error:*
 \`\`\`
 $ERROR_FIRST_LINE
 \`\`\`"
@@ -338,19 +297,19 @@ $ERROR_FIRST_LINE
     if [[ -n "$FULL_LOG" ]]; then
       MSG="$MSG
 $(fmt_section)
-$E_MAGNIFY *Build Log (last 4000 chars):*
+🔍 *Build Log (last 4000 chars):*
 \`\`\`
 $FULL_LOG
 \`\`\`"
     else
       MSG="$MSG
 $(fmt_section)
-$E_INFO _No error log available — build may have failed before logging started_"
+ℹ️ _No error log available — build may have failed before logging started_"
     fi
 
     MSG="$MSG
 $(fmt_section)
-$E_LINK [View Run #$RUN_NUMBER]($RUN_URL)"
+🔗 [View Run #$RUN_NUMBER]($RUN_URL)"
     send_msg_to "$ERROR_DUMP_CHAT_ID" "$MSG"
     ;;
 
@@ -362,7 +321,7 @@ $E_LINK [View Run #$RUN_NUMBER]($RUN_URL)"
 $CONTENT"
       MSG="$MSG
 $(fmt_section)
-$E_LINK [View Release](https://github.com/$REPO/releases/tag/$RELEASE_TAG)"
+🔗 [View Release](https://github.com/$REPO/releases/tag/$RELEASE_TAG)"
       send_msg "$MSG"
     fi
     ;;
@@ -371,24 +330,24 @@ $E_LINK [View Release](https://github.com/$REPO/releases/tag/$RELEASE_TAG)"
     RELEASE_URL="https://github.com/$REPO/releases/tag/$RELEASE_TAG"
     MSG="$(fmt_header "Cyrene Clang $RELEASE_TAG Released")"
     MSG="$MSG
-$E_CHECK *Release published successfully!*"
+✅ *Release published successfully!*"
     MSG="$MSG
 $(fmt_section)
-$E_PACKAGE *Release Info:*"
+📦 *Release Info:*"
     MSG="$MSG
-$(fmt_kv_raw "$E_PACKAGE" "Tag" "$RELEASE_TAG")"
+📦 Tag: $RELEASE_TAG"
     MSG="$MSG
-$(fmt_kv_raw "$E_PACKAGE" "File" "${TARBALL_NAME:-unknown}")"
+📦 File: ${TARBALL_NAME:-unknown}"
     MSG="$MSG
-$(fmt_kv_raw "$E_PACKAGE" "Size" "${PACKAGE_SIZE:-unknown}")"
+📦 Size: ${PACKAGE_SIZE:-unknown}"
     MSG="$MSG
 $(fmt_section)
-$E_ROCKET *Quick Download:*
+🚀 *Quick Download:*
 \`\`\`
 wget $RELEASE_URL/download/$RELEASE_TAG/${TARBALL_NAME:-cyrene-clang.tar.zst}
 \`\`\`"
     MSG="$MSG
-$E_LINK [View Release]($RELEASE_URL)"
+🔗 [View Release]($RELEASE_URL)"
     send_msg "$MSG"
     ;;
 esac

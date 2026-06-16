@@ -11,16 +11,10 @@ LLVM_DIR="${LLVM_DIR:-$(pwd)/llvm-project}"
 JOBS="${JOBS:-$(nproc)}"
 ENABLE_PGO="${ENABLE_PGO:-true}"
 ENABLE_BOLT="${ENABLE_BOLT:-true}"
-PGO_WORKLOAD="${PGO_WORKLOAD:-sqlite}"  # "sqlite" (fast) or "kernel" (accurate)
+PGO_WORKLOAD="${PGO_WORKLOAD:-sqlite}"
 
-# Targets: AArch64 (Android), ARM (32-bit compat), X86 (host tools)
 LLVM_TARGETS="AArch64;ARM;X86"
-
-# Projects to build — polly for loop vectorization
-# Note: bolt is NOT included here — it's a post-build tool, not a build-time project
 LLVM_PROJECTS="clang;lld;compiler-rt;polly"
-
-# Vendor string — appended to clang version (e.g. "CyreneClang 22.1.0")
 CLANG_VENDOR="${CLANG_VENDOR:-CyreneClang}"
 
 # ─── Host Compiler Detection ──────────────────────────────────────────────
@@ -42,8 +36,8 @@ warn() { echo -e "\033[1;33m[WARN]\033[0m $*" >&2; }
 die() { echo -e "\033[1;31m[ERROR]\033[0m $*" >&2; exit 1; }
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_DIR="$(dirname "$SCRIPT_DIR")"
 NOTIFY_SCRIPT="$SCRIPT_DIR/notify.sh"
-
 START_EPOCH=$(date +%s)
 
 notify() {
@@ -53,7 +47,7 @@ notify() {
 }
 
 build_duration() {
-  local now end elapsed h m s
+  local now elapsed h m s
   now=$(date +%s)
   elapsed=$((now - START_EPOCH))
   h=$((elapsed / 3600))
@@ -64,23 +58,22 @@ build_duration() {
 
 gen_changelog() {
   local cl="$BUILD_DIR/changelog.txt"
+  local patches_dir="$REPO_DIR/patches"
+
   {
     echo "*Date:* $BUILD_DATE"
     echo "*Branch:* \`$LLVM_BRANCH\`"
     echo "*LLVM Commit:* \`$LLVM_COMMIT\`"
     echo "*PGO:* $ENABLE_PGO | *LTO:* $LTO_MODE"
 
-    local patch_files=("$(dirname "$SCRIPT_DIR")/patches"/*.patch)
-    if ls "$(dirname "$SCRIPT_DIR")/patches/"*.patch &>/dev/null 2>&1; then
+    if ls "$patches_dir"/*.patch &>/dev/null 2>&1; then
       echo ""
       echo "*Applied Patches:*"
-      for pf in "$(dirname "$SCRIPT_DIR")/patches/"*.patch; do
-        local name
+      for pf in "$patches_dir"/*.patch; do
+        local name subj
         name=$(basename "$pf")
-        local subj
         subj=$(grep -m1 '^Subject: ' "$pf" 2>/dev/null | sed 's/^Subject: //' || echo "")
-        local BULLET=$'\xE2\x80\xA2' DASH=$'\xE2\x80\x94'
-        echo "  $BULLET \`$name\`${subj:+ $DASH $subj}"
+        echo "  • \`$name\`${subj:+ — $subj}"
       done
     fi
   } > "$cl"
@@ -106,13 +99,13 @@ apply_patches() {
 
 # ─── CMake Configure Helper ───────────────────────────────────────────────────
 cmake_configure() {
-  local src="$1" build="$2" install="$3"
-  shift 3
+  local src="$1" build="$2" install="$3" projects="$4"
+  shift 4
   cmake -S "$src/llvm" -B "$build" -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_INSTALL_PREFIX="$install" \
     -DLLVM_TARGETS_TO_BUILD="$LLVM_TARGETS" \
-    -DLLVM_ENABLE_PROJECTS="$LLVM_PROJECTS" \
+    -DLLVM_ENABLE_PROJECTS="$projects" \
     -DLLVM_INCLUDE_TESTS=OFF \
     -DLLVM_INCLUDE_EXAMPLES=OFF \
     -DLLVM_INCLUDE_BENCHMARKS=OFF \
@@ -135,16 +128,16 @@ stage1_build() {
   local s1_build="$BUILD_DIR/stage1"
   local s1_install="$BUILD_DIR/stage1-install"
 
-  # Stage 1 only needs clang to generate PGO profiles — skip compiler-rt
-  # (asan_interceptors_vfork.S has PIC issues when built with -fprofile-generate)
+  # Stage 1 only needs clang/lld/polly to generate PGO profiles
+  # compiler-rt is skipped because asan_interceptors_vfork.S has PIC issues
+  # when built with -fprofile-generate
   local stage1_projects="clang;lld;polly"
 
-  cmake_configure "$LLVM_DIR" "$s1_build" "$s1_install" \
+  cmake_configure "$LLVM_DIR" "$s1_build" "$s1_install" "$stage1_projects" \
     -DCMAKE_C_COMPILER="$HOST_CC" \
     -DCMAKE_CXX_COMPILER="$HOST_CXX" \
     -DLLVM_ENABLE_LTO=OFF \
-    -DLLVM_BUILD_INSTRUMENTED=IR \
-    -DLLVM_ENABLE_PROJECTS="$stage1_projects"
+    -DLLVM_BUILD_INSTRUMENTED=IR
 
   cmake --build "$s1_build" -j"$JOBS" 2>&1 | tee -a "$BUILD_DIR/build.log"
   cmake --install "$s1_build" 2>&1 | tee -a "$BUILD_DIR/build.log"
@@ -163,7 +156,7 @@ collect_sqlite() {
 
   local workload_dir="$BUILD_DIR/workload"
   mkdir -p "$workload_dir"
-  
+
   log "Downloading SQLite amalgamation ..."
   if ! curl -sSL https://www.sqlite.org/2024/sqlite-amalgamation-3460000.zip \
     -o "$workload_dir/sqlite.zip"; then
@@ -183,7 +176,7 @@ collect_sqlite() {
     warn "SQLite compilation failed"
     return 1
   fi
-  
+
   log "SQLite workload completed successfully."
 }
 
@@ -219,7 +212,6 @@ collect_kernel() {
   log "Cleaning up kernel source (saves ~2GB) ..."
   rm -rf "$kernel_dir"
 
-  # Verify profiles were generated
   shopt -s nullglob
   local profiles=("$profile_dir"/*.profraw)
   shopt -u nullglob
@@ -244,7 +236,6 @@ collect_profiles() {
     collect_sqlite || return 1
   fi
 
-  # Check if any .profraw files were actually generated
   shopt -s nullglob
   local profiles=("$profile_dir"/*.profraw)
   shopt -u nullglob
@@ -254,9 +245,8 @@ collect_profiles() {
     return 1
   fi
 
-  # Merge raw profiles into a single .prof file
   log "Merging PGO profiles ..."
-  if ! "$BUILD_DIR/stage1-install/bin/llvm-profdata" merge \
+  if ! "$STAGE1_INSTALL/bin/llvm-profdata" merge \
     -output="$BUILD_DIR/pgo.prof" \
     "${profiles[@]}"; then
     warn "llvm-profdata merge failed"
@@ -272,7 +262,7 @@ stage2_build() {
   log "Stage 2: Building optimized CyreneClang ..."
   local s2_build="$BUILD_DIR/stage2"
 
-  cmake_configure "$LLVM_DIR" "$s2_build" "$INSTALL_DIR" \
+  cmake_configure "$LLVM_DIR" "$s2_build" "$INSTALL_DIR" "$LLVM_PROJECTS" \
     -DCMAKE_C_COMPILER="$STAGE1_CC" \
     -DCMAKE_CXX_COMPILER="$STAGE1_CXX" \
     -DLLVM_ENABLE_LTO=Thin \
@@ -285,63 +275,39 @@ stage2_build() {
 }
 
 # ─── BOLT Post-Build Optimization ────────────────────────────────────────────
-# Binary Optimization and Layout Tool — reorders functions/data for better
-# cache locality. Typically yields 5-15% speedup on top of PGO + ThinLTO.
 apply_bolt() {
-  if [[ "$ENABLE_BOLT" != "true" ]]; then
-    return 0
-  fi
+  [[ "$ENABLE_BOLT" == "true" ]] || return 0
 
   local clang_bin="$INSTALL_DIR/bin/clang"
-  local llvm_bolt
-  llvm_bolt=$(command -v llvm-bolt 2>/dev/null || echo "$INSTALL_DIR/bin/llvm-bolt")
-  local perf2bolt
-  perf2bolt=$(command -v perf2bolt 2>/dev/null || echo "$INSTALL_DIR/bin/perf2bolt")
+  local llvm_bolt="${INSTALL_DIR}/bin/llvm-bolt"
+  local perf2bolt="${INSTALL_DIR}/bin/perf2bolt"
 
   # Check prerequisites
-  if [[ ! -x "$clang_bin" ]]; then
-    warn "clang binary not found, skipping BOLT"
-    return 0
-  fi
-  if [[ ! -x "$llvm_bolt" ]]; then
-    warn "llvm-bolt not found, skipping BOLT (build llvm-bolt first)"
-    return 0
-  fi
-  if ! command -v perf &>/dev/null; then
-    warn "perf not found, skipping BOLT (install linux-tools-generic)"
-    return 0
-  fi
+  [[ -x "$clang_bin" ]] || { warn "clang binary not found, skipping BOLT"; return 0; }
+  [[ -x "$llvm_bolt" ]] || { warn "llvm-bolt not found, skipping BOLT"; return 0; }
+  command -v perf &>/dev/null || { warn "perf not found, skipping BOLT"; return 0; }
 
   log "Applying BOLT optimization to clang ..."
-
   local bolt_dir="$BUILD_DIR/bolt"
   mkdir -p "$bolt_dir"
 
-  # Step 1: Collect perf profile (run clang on a small workload)
-  log "  BOLT: Collecting perf profile ..."
+  # Step 1: Collect perf profile
   local perf_data="$bolt_dir/clang.perf.data"
-
-  # Create a minimal C file to compile for profiling
   local test_c="$bolt_dir/test.c"
-  cat > "$test_c" <<'TESTEOF'
-int main(void) { return 0; }
-TESTEOF
+  echo 'int main(void) { return 0; }' > "$test_c"
 
-  # Record perf events while compiling the test file
+  log "  BOLT: Collecting perf profile ..."
   perf record -e cycles:u -j any,u -o "$perf_data" \
     "$clang_bin" -c -O2 -o /dev/null "$test_c" 2>/dev/null || {
     warn "BOLT: perf record failed, skipping"
     return 0
   }
 
-  if [[ ! -s "$perf_data" ]]; then
-    warn "BOLT: no perf data collected, skipping"
-    return 0
-  fi
+  [[ -s "$perf_data" ]] || { warn "BOLT: no perf data collected, skipping"; return 0; }
 
   # Step 2: Convert perf data to BOLT format
-  log "  BOLT: Converting perf data ..."
   local fdata="$bolt_dir/clang.fdata"
+  log "  BOLT: Converting perf data ..."
 
   if [[ -x "$perf2bolt" ]]; then
     "$perf2bolt" -p "$perf_data" -o "$fdata" "$clang_bin" 2>/dev/null || {
@@ -349,16 +315,13 @@ TESTEOF
       return 0
     }
   else
-    # Fallback: use llvm-bolt's built-in perf conversion
-    "$llvm_bolt" -perfdata="$perf_data" -read-only -o /dev/null "$clang_bin" 2>/dev/null || true
-    # If that doesn't work, skip BOLT
     warn "BOLT: perf2bolt not found, skipping"
     return 0
   fi
 
   # Step 3: Apply BOLT optimization
-  log "  BOLT: Optimizing clang binary ..."
   local bolted_bin="$bolt_dir/clang.bolt"
+  log "  BOLT: Optimizing clang binary ..."
 
   "$llvm_bolt" "$clang_bin" \
     -data="$fdata" \
@@ -371,21 +334,19 @@ TESTEOF
     -icf=1 \
     -use-gnu-stack \
     2>&1 | tee -a "$BUILD_DIR/build.log" || {
-      warn "BOLT: optimization failed, skipping"
-      return 0
-    }
+    warn "BOLT: optimization failed, skipping"
+    return 0
+  }
 
   # Step 4: Replace original binary
   if [[ -s "$bolted_bin" ]]; then
-    local original_size
+    local original_size bolted_size saved_pct=0
     original_size=$(stat -c%s "$clang_bin" 2>/dev/null || stat -f%z "$clang_bin" 2>/dev/null || echo 0)
-    local bolted_size
     bolted_size=$(stat -c%s "$bolted_bin" 2>/dev/null || stat -f%z "$bolted_bin" 2>/dev/null || echo 0)
 
     cp "$bolted_bin" "$clang_bin"
     chmod +x "$clang_bin"
 
-    local saved_pct=0
     if [[ "$original_size" -gt 0 ]]; then
       saved_pct=$(( (original_size - bolted_size) * 100 / original_size ))
     fi
@@ -401,30 +362,27 @@ TESTEOF
 simple_build() {
   log "Building CyreneClang (no PGO) ..."
   local build="$BUILD_DIR/simple"
+  local cc="" cxx=""
+  local lto_mode="Thin"
 
-  # Use Stage 1 Clang (supports ThinLTO) if available; fall back to system Clang
-  local cc="${STAGE1_CC:-}"
-  local cxx="${STAGE1_CXX:-}"
-
-  if [[ -z "$cc" || ! -f "$cc" ]]; then
-    if [[ "$HOST_HAS_CLANG" == "true" ]]; then
-      cc="$HOST_CC"; cxx="$HOST_CXX"
-    fi
+  # Use Stage 1 Clang if available, else host Clang, else no LTO
+  if [[ -n "${STAGE1_CC:-}" && -x "${STAGE1_CC:-}" ]]; then
+    cc="$STAGE1_CC"; cxx="$STAGE1_CXX"
+  elif [[ "$HOST_HAS_CLANG" == "true" ]]; then
+    cc="$HOST_CC"; cxx="$HOST_CXX"
+  else
+    lto_mode="Off"
   fi
 
+  local cmake_args=()
   if [[ -n "$cc" && -f "$cc" ]]; then
-    cmake_configure "$LLVM_DIR" "$build" "$INSTALL_DIR" \
-      -DCMAKE_C_COMPILER="$cc" \
-      -DCMAKE_CXX_COMPILER="$cxx" \
-      -DLLVM_ENABLE_LTO=Thin \
-      -DCOMPILER_RT_ENABLE_LTO=OFF
+    cmake_args+=(-DCMAKE_C_COMPILER="$cc" -DCMAKE_CXX_COMPILER="$cxx" -DLLVM_ENABLE_LTO="$lto_mode")
   else
     warn "No Clang host compiler found — building without ThinLTO"
-    LTO_MODE="Off"
-    cmake_configure "$LLVM_DIR" "$build" "$INSTALL_DIR" \
-      -DLLVM_ENABLE_LTO=OFF
+    cmake_args+=(-DLLVM_ENABLE_LTO=Off)
   fi
 
+  cmake_configure "$LLVM_DIR" "$build" "$INSTALL_DIR" "$LLVM_PROJECTS" "${cmake_args[@]}"
   cmake --build "$build" -j"$JOBS" 2>&1 | tee -a "$BUILD_DIR/build.log"
   cmake --install "$build" 2>&1 | tee -a "$BUILD_DIR/build.log"
 }
@@ -436,16 +394,15 @@ main() {
   LLVM_COMMIT=$(git -C "$LLVM_DIR" rev-parse --short HEAD 2>/dev/null || echo "unknown")
   LTO_MODE="Thin"
   PATCH_COUNT=0
-  if ls "$(dirname "$SCRIPT_DIR")/patches/"*.patch &>/dev/null 2>&1; then
-    PATCH_COUNT=$(ls -1 "$(dirname "$SCRIPT_DIR")/patches/"*.patch 2>/dev/null | wc -l)
+
+  if ls "$REPO_DIR/patches/"*.patch &>/dev/null 2>&1; then
+    PATCH_COUNT=$(ls -1 "$REPO_DIR/patches/"*.patch 2>/dev/null | wc -l)
   fi
 
   export LLVM_BRANCH BUILD_DATE LLVM_COMMIT LTO_MODE PATCH_COUNT
   export GITHUB_RUN_NUMBER="${GITHUB_RUN_NUMBER:-}"
   export GITHUB_RUN_ID="${GITHUB_RUN_ID:-}"
   export GITHUB_REPOSITORY="${GITHUB_REPOSITORY:-}"
-
-  # Note: notify started is called by GitHub Actions workflow, not here
 
   log "Starting CyreneClang build (PGO=$ENABLE_PGO) ..."
   mkdir -p "$BUILD_DIR"
@@ -459,13 +416,14 @@ main() {
 
   BUILD_SUCCESS=false
   if [[ "$ENABLE_PGO" == "true" ]]; then
+    export STAGE1_INSTALL="$BUILD_DIR/stage1-install"
     stage1_build
     if collect_profiles; then
       stage2_build
       apply_bolt
       BUILD_SUCCESS=true
     else
-      warn "PGO profile collection failed. Falling back to non-PGO (simple) build."
+      warn "PGO profile collection failed. Falling back to non-PGO build."
       ENABLE_PGO="false"
       export ENABLE_PGO
       simple_build

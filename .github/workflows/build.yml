@@ -87,6 +87,9 @@ jobs:
         run: bash scripts/build.sh
         env:
           JOBS: 4
+          LLVM_BRANCH: ${{ env.LLVM_BRANCH }}
+          ENABLE_PGO: ${{ env.ENABLE_PGO }}
+          PGO_WORKLOAD: ${{ env.PGO_WORKLOAD }}
 
       # ── Package ──────────────────────────────────────────────────────────────
       - name: Package toolchain + generate manifest
