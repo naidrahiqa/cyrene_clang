@@ -132,8 +132,10 @@ stage1_build() {
   # compiler-rt is skipped because asan_interceptors_vfork.S has PIC issues
   # when built with -fprofile-generate
   local stage1_projects="clang;lld;polly"
+    local stage1_runtimes="compiler-rt"
 
   cmake_configure "$LLVM_DIR" "$s1_build" "$s1_install" "$stage1_projects" \
+    -DLLVM_ENABLE_RUNTIMES="$stage1_runtimes" \
     -DCMAKE_C_COMPILER="$HOST_CC" \
     -DCMAKE_CXX_COMPILER="$HOST_CXX" \
     -DLLVM_ENABLE_LTO=OFF \
