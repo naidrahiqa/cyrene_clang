@@ -72,12 +72,27 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             cmake ninja-build python3 git curl unzip \
-            clang lld \
+            clang lld ccache \
             libxml2-dev libedit-dev libncurses5-dev \
             libc++-dev libc++abi-dev \
             libc6-dev libgcc-11-dev \
             zstd build-essential ca-certificates \
             binutils-aarch64-linux-gnu
+
+      - name: Setup ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ${{ runner.os }}-ccache-${{ env.LLVM_BRANCH }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-${{ env.LLVM_BRANCH }}-
+            ${{ runner.os }}-ccache-
+
+      - name: Configure ccache
+        run: |
+          mkdir -p ~/.cache/ccache
+          ccache --set-config=max_size=2.0G
+          ccache -s
 
       # ── Build ────────────────────────────────────────────────────────────────
       - name: Make scripts executable
@@ -90,6 +105,9 @@ jobs:
           LLVM_BRANCH: ${{ env.LLVM_BRANCH }}
           ENABLE_PGO: ${{ env.ENABLE_PGO }}
           PGO_WORKLOAD: ${{ env.PGO_WORKLOAD }}
+
+      - name: Show ccache stats
+        run: ccache -s
 
       # ── Package ──────────────────────────────────────────────────────────────
       - name: Package toolchain + generate manifest

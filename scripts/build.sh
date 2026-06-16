@@ -19,13 +19,45 @@ CLANG_VENDOR="${CLANG_VENDOR:-CyreneClang}"
 
 # ─── Host Compiler Detection ──────────────────────────────────────────────
 detect_host_compiler() {
-  if command -v clang &>/dev/null; then
-    HOST_CC="clang"
-    HOST_CXX="clang++"
+  HOST_CC="${HOST_CC:-}"
+  HOST_CXX="${HOST_CXX:-}"
+
+  if [[ -z "$HOST_CC" ]]; then
+    if command -v clang &>/dev/null; then
+      HOST_CC="clang"
+      HOST_CXX="clang++"
+    else
+      HOST_CC="cc"
+      HOST_CXX="c++"
+    fi
+  fi
+
+  HOST_PROFDATA=""
+  if [[ "$HOST_CC" == *clang* ]]; then
     HOST_HAS_CLANG=true
+    local resolved_cc
+    resolved_cc=$(command -v "$HOST_CC" || echo "$HOST_CC")
+    if [[ -L "$resolved_cc" ]]; then
+      resolved_cc=$(readlink -f "$resolved_cc")
+    fi
+    local host_dir
+    host_dir=$(dirname "$resolved_cc")
+
+    local suffix=""
+    if [[ "$HOST_CC" =~ clang(-[0-9]+) ]]; then
+      suffix="${BASH_REMATCH[1]}"
+    fi
+
+    if [[ -n "$suffix" && -x "$host_dir/llvm-profdata$suffix" ]]; then
+      HOST_PROFDATA="$host_dir/llvm-profdata$suffix"
+    elif [[ -x "$host_dir/llvm-profdata" ]]; then
+      HOST_PROFDATA="$host_dir/llvm-profdata"
+    elif [[ -n "$suffix" ]] && command -v "llvm-profdata$suffix" &>/dev/null; then
+      HOST_PROFDATA=$(command -v "llvm-profdata$suffix")
+    elif command -v llvm-profdata &>/dev/null; then
+      HOST_PROFDATA=$(command -v llvm-profdata)
+    fi
   else
-    HOST_CC="cc"
-    HOST_CXX="c++"
     HOST_HAS_CLANG=false
   fi
 }
@@ -101,6 +133,19 @@ apply_patches() {
 cmake_configure() {
   local src="$1" build="$2" install="$3" projects="$4"
   shift 4
+
+  local cmake_extra_args=()
+
+  # Enable ccache if available
+  if command -v ccache &>/dev/null; then
+    cmake_extra_args+=("-DLLVM_CCACHE_BUILD=ON")
+  fi
+
+  # Use LLD as the linker if available (much faster than GNU ld)
+  if command -v ld.lld &>/dev/null || command -v lld &>/dev/null; then
+    cmake_extra_args+=("-DLLVM_USE_LINKER=lld")
+  fi
+
   cmake -S "$src/llvm" -B "$build" -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_INSTALL_PREFIX="$install" \
@@ -119,6 +164,10 @@ cmake_configure() {
     -DCOMPILER_RT_ENABLE_PIC=ON \
     -DCMAKE_SHARED_LINKER_FLAGS="-lc++ -lc++abi -lm" \
     -DCLANG_VENDOR="$CLANG_VENDOR" \
+    -DCLANG_ENABLE_ARCMT=OFF \
+    -DCLANG_ENABLE_STATIC_ANALYZER=OFF \
+    -DLLVM_ENABLE_WARNINGS=OFF \
+    "${cmake_extra_args[@]}" \
     "$@"
 }
 
@@ -128,16 +177,18 @@ stage1_build() {
   local s1_build="$BUILD_DIR/stage1"
   local s1_install="$BUILD_DIR/stage1-install"
 
-  # Stage 1 only needs clang/lld/polly to generate PGO profiles
-  # compiler-rt is skipped because asan_interceptors_vfork.S has PIC issues
-  # when built with -fprofile-generate
-  local stage1_projects="clang;lld;polly"
+  # Include lld and compiler-rt (without sanitizers/xray/libfuzzer) so Stage 1 Clang
+  # has a modern LTO-compatible linker and builtins to pass CMake compiler checks.
+  local stage1_projects="clang;lld;compiler-rt"
 
   cmake_configure "$LLVM_DIR" "$s1_build" "$s1_install" "$stage1_projects" \
     -DCMAKE_C_COMPILER="$HOST_CC" \
     -DCMAKE_CXX_COMPILER="$HOST_CXX" \
     -DLLVM_ENABLE_LTO=OFF \
-    -DLLVM_BUILD_INSTRUMENTED=IR
+    -DLLVM_BUILD_INSTRUMENTED=IR \
+    -DCOMPILER_RT_BUILD_SANITIZERS=OFF \
+    -DCOMPILER_RT_BUILD_XRAY=OFF \
+    -DCOMPILER_RT_BUILD_LIBFUZZER=OFF
 
   cmake --build "$s1_build" -j"$JOBS" 2>&1 | tee -a "$BUILD_DIR/build.log"
   cmake --install "$s1_build" 2>&1 | tee -a "$BUILD_DIR/build.log"
@@ -246,7 +297,13 @@ collect_profiles() {
   fi
 
   log "Merging PGO profiles ..."
-  if ! "$STAGE1_INSTALL/bin/llvm-profdata" merge \
+  local profdata_bin="$STAGE1_INSTALL/bin/llvm-profdata"
+  if [[ -n "${HOST_PROFDATA:-}" && -x "$HOST_PROFDATA" ]]; then
+    log "Using host llvm-profdata ($HOST_PROFDATA) to match host compiler instrumentation..."
+    profdata_bin="$HOST_PROFDATA"
+  fi
+
+  if ! "$profdata_bin" merge \
     -output="$BUILD_DIR/pgo.prof" \
     "${profiles[@]}"; then
     warn "llvm-profdata merge failed"
@@ -262,6 +319,10 @@ stage2_build() {
   log "Stage 2: Building optimized CyreneClang ..."
   local s2_build="$BUILD_DIR/stage2"
 
+  # Prepend Stage 1 bin to PATH so that CMake and Clang find lld, llvm-profdata, etc.
+  local old_path="$PATH"
+  export PATH="$STAGE1_INSTALL/bin:$PATH"
+
   cmake_configure "$LLVM_DIR" "$s2_build" "$INSTALL_DIR" "$LLVM_PROJECTS" \
     -DCMAKE_C_COMPILER="$STAGE1_CC" \
     -DCMAKE_CXX_COMPILER="$STAGE1_CXX" \
@@ -272,6 +333,8 @@ stage2_build() {
 
   cmake --build "$s2_build" -j"$JOBS" 2>&1 | tee -a "$BUILD_DIR/build.log"
   cmake --install "$s2_build" 2>&1 | tee -a "$BUILD_DIR/build.log"
+
+  export PATH="$old_path"
 }
 
 # ─── BOLT Post-Build Optimization ────────────────────────────────────────────
@@ -364,10 +427,12 @@ simple_build() {
   local build="$BUILD_DIR/simple"
   local cc="" cxx=""
   local lto_mode="Thin"
+  local old_path="$PATH"
 
   # Use Stage 1 Clang if available, else host Clang, else no LTO
   if [[ -n "${STAGE1_CC:-}" && -x "${STAGE1_CC:-}" ]]; then
     cc="$STAGE1_CC"; cxx="$STAGE1_CXX"
+    export PATH="$STAGE1_INSTALL/bin:$PATH"
   elif [[ "$HOST_HAS_CLANG" == "true" ]]; then
     cc="$HOST_CC"; cxx="$HOST_CXX"
   else
@@ -385,6 +450,8 @@ simple_build() {
   cmake_configure "$LLVM_DIR" "$build" "$INSTALL_DIR" "$LLVM_PROJECTS" "${cmake_args[@]}"
   cmake --build "$build" -j"$JOBS" 2>&1 | tee -a "$BUILD_DIR/build.log"
   cmake --install "$build" 2>&1 | tee -a "$BUILD_DIR/build.log"
+
+  export PATH="$old_path"
 }
 
 # ─── Main ─────────────────────────────────────────────────────────────────────
