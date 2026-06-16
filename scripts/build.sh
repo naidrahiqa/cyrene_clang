@@ -391,7 +391,6 @@ simple_build() {
 main() {
   detect_host_compiler
   BUILD_DATE=$(date -u +%Y-%m-%d)
-  LLVM_COMMIT=$(git -C "$LLVM_DIR" rev-parse --short HEAD 2>/dev/null || echo "unknown")
   LTO_MODE="Thin"
   PATCH_COUNT=0
 
@@ -399,7 +398,7 @@ main() {
     PATCH_COUNT=$(ls -1 "$REPO_DIR/patches/"*.patch 2>/dev/null | wc -l)
   fi
 
-  export LLVM_BRANCH BUILD_DATE LLVM_COMMIT LTO_MODE PATCH_COUNT
+  export LLVM_BRANCH BUILD_DATE LTO_MODE PATCH_COUNT
   export GITHUB_RUN_NUMBER="${GITHUB_RUN_NUMBER:-}"
   export GITHUB_RUN_ID="${GITHUB_RUN_ID:-}"
   export GITHUB_REPOSITORY="${GITHUB_REPOSITORY:-}"
@@ -407,7 +406,17 @@ main() {
   log "Starting CyreneClang build (PGO=$ENABLE_PGO) ..."
   mkdir -p "$BUILD_DIR"
 
+  # Clone LLVM first — set commit AFTER clone so notification has correct info
+  BUILD_STAGE="Cloning LLVM"
+  export BUILD_STAGE
   clone_llvm
+
+  # Now we can get the actual commit
+  LLVM_COMMIT=$(git -C "$LLVM_DIR" rev-parse --short HEAD 2>/dev/null || echo "unknown")
+  export LLVM_COMMIT
+
+  BUILD_STAGE="Applying patches"
+  export BUILD_STAGE
   apply_patches
 
   # Refresh commit after patching
@@ -417,24 +426,41 @@ main() {
   BUILD_SUCCESS=false
   if [[ "$ENABLE_PGO" == "true" ]]; then
     export STAGE1_INSTALL="$BUILD_DIR/stage1-install"
+
+    BUILD_STAGE="Stage 1: Instrumented build"
+    export BUILD_STAGE
     stage1_build
+
+    BUILD_STAGE="PGO profile collection"
+    export BUILD_STAGE
     if collect_profiles; then
+      BUILD_STAGE="Stage 2: Optimized build"
+      export BUILD_STAGE
       stage2_build
+
+      BUILD_STAGE="BOLT optimization"
+      export BUILD_STAGE
       apply_bolt
       BUILD_SUCCESS=true
     else
       warn "PGO profile collection failed. Falling back to non-PGO build."
       ENABLE_PGO="false"
       export ENABLE_PGO
+      BUILD_STAGE="Simple build (no PGO fallback)"
+      export BUILD_STAGE
       simple_build
       BUILD_SUCCESS=true
     fi
   else
+    BUILD_STAGE="Simple build"
+    export BUILD_STAGE
     simple_build
     BUILD_SUCCESS=true
   fi
 
   if [[ "$BUILD_SUCCESS" == "true" ]]; then
+    BUILD_STAGE="Packaging"
+    export BUILD_STAGE
     CLANG_VERSION=$("$INSTALL_DIR/bin/clang" --version | head -1 | grep -oP '\d+\.\d+\.\d+\S*' | head -1)
     BUILD_DURATION=$(build_duration)
     export CLANG_VERSION BUILD_DURATION
@@ -450,7 +476,16 @@ cleanup() {
   local exit_code=$?
   if [[ $exit_code -ne 0 ]] && [[ -x "$NOTIFY_SCRIPT" ]]; then
     BUILD_DURATION=$(build_duration 2>/dev/null || echo "unknown")
-    export BUILD_DURATION ERROR_LOG="${ERROR_LOG:-}" BUILD_STAGE="Build Failed"
+
+    # Capture error from build.log if it exists
+    local error_log=""
+    if [[ -f "$BUILD_DIR/build.log" && -s "$BUILD_DIR/build.log" ]]; then
+      error_log=$(tail -c 4000 "$BUILD_DIR/build.log" 2>/dev/null || true)
+    fi
+
+    export BUILD_DURATION
+    export ERROR_LOG="${error_log:-${ERROR_LOG:-}}"
+    export BUILD_STAGE="Build Failed"
     export ERROR_DUMP_CHAT_ID="${ERROR_DUMP_CHAT_ID:-}"
     export ERROR_DUMP_FILE="${ERROR_DUMP_FILE:-$BUILD_DIR/build.log}"
     bash "$NOTIFY_SCRIPT" failure || true

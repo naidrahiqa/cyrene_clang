@@ -139,6 +139,8 @@ jobs:
           make_latest: true
 
       # ── Notifications ────────────────────────────────────────────────────────
+      # Note: failure notification is handled by build.sh cleanup trap
+      # (which has access to build.log and error context)
       - name: Notify build success
         if: success()
         run: bash scripts/notify.sh success
@@ -148,7 +150,3 @@ jobs:
       - name: Notify release
         if: ${{ (github.event.inputs.release == 'true' || github.event_name == 'schedule') && success() }}
         run: bash scripts/notify.sh release
-
-      - name: Notify build failure
-        if: failure()
-        run: bash scripts/notify.sh failure
