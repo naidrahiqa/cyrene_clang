@@ -124,7 +124,6 @@ cmake_configure() {
     -DCOMPILER_RT_USE_LIBCXX=ON \
     -DCOMPILER_RT_LINK_CXX_LIBRARY=ON \
     -DCOMPILER_RT_ENABLE_PIC=ON \
-    -DCOMPILER_RT_ASSEMBLER_FLAGS="-fPIC" \
     -DCMAKE_SHARED_LINKER_FLAGS="-lc++ -lc++abi -lm" \
     -DCLANG_VENDOR="$CLANG_VENDOR" \
     "$@"
@@ -136,11 +135,16 @@ stage1_build() {
   local s1_build="$BUILD_DIR/stage1"
   local s1_install="$BUILD_DIR/stage1-install"
 
+  # Stage 1 only needs clang to generate PGO profiles — skip compiler-rt
+  # (asan_interceptors_vfork.S has PIC issues when built with -fprofile-generate)
+  local stage1_projects="clang;lld;polly"
+
   cmake_configure "$LLVM_DIR" "$s1_build" "$s1_install" \
     -DCMAKE_C_COMPILER="$HOST_CC" \
     -DCMAKE_CXX_COMPILER="$HOST_CXX" \
     -DLLVM_ENABLE_LTO=OFF \
-    -DLLVM_BUILD_INSTRUMENTED=IR
+    -DLLVM_BUILD_INSTRUMENTED=IR \
+    -DLLVM_ENABLE_PROJECTS="$stage1_projects"
 
   cmake --build "$s1_build" -j"$JOBS" 2>&1 | tee -a "$BUILD_DIR/build.log"
   cmake --install "$s1_build" 2>&1 | tee -a "$BUILD_DIR/build.log"
