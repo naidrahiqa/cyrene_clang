@@ -177,20 +177,11 @@ stage1_build() {
   local s1_build="$BUILD_DIR/stage1"
   local s1_install="$BUILD_DIR/stage1-install"
 
-<<<<<<< HEAD
   # Include lld and compiler-rt (without sanitizers/xray/libfuzzer) so Stage 1 Clang
   # has a modern LTO-compatible linker and builtins to pass CMake compiler checks.
   local stage1_projects="clang;lld;compiler-rt"
-=======
-  # Stage 1 only needs clang/lld/polly to generate PGO profiles
-  # compiler-rt is skipped because asan_interceptors_vfork.S has PIC issues
-  # when built with -fprofile-generate
-  local stage1_projects="clang;lld;polly"
-    local stage1_runtimes="compiler-rt"
->>>>>>> 4928cea534df5a4fbfc6ed97fad44df6d12679a6
 
   cmake_configure "$LLVM_DIR" "$s1_build" "$s1_install" "$stage1_projects" \
-    -DLLVM_ENABLE_RUNTIMES="$stage1_runtimes" \
     -DCMAKE_C_COMPILER="$HOST_CC" \
     -DCMAKE_CXX_COMPILER="$HOST_CXX" \
     -DLLVM_ENABLE_LTO=OFF \
