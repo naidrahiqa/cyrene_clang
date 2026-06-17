@@ -365,8 +365,8 @@ cleanup_stage1_artifacts() {
       local name
       name=$(basename "$tool")
       case "$name" in
-        clang|clang++|lld|ld.lld|llvm-profdata|llvm-ar|llvm-nm|llvm-objcopy|llvm-objdump|llvm-strip)
-          ;; # Keep these
+        clang*|lld*|ld.lld*|llvm-profdata*|llvm-ar*|llvm-nm*|llvm-objcopy*|llvm-objdump*|llvm-strip*)
+          ;; # Keep these and versioned variants (e.g., clang-22)
         *)
           rm -f "$tool" 2>/dev/null || true
           ;;
