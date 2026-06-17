@@ -57,6 +57,10 @@ jobs:
 
       - name: Free up disk space
         run: |
+          echo "=== Initial disk usage ==="
+          df -h /
+
+          echo "=== Removing large pre-installed packages ==="
           sudo rm -rf \
             /usr/share/dotnet \
             /usr/share/swift \
@@ -68,10 +72,49 @@ jobs:
             /usr/local/lib/node_modules \
             /opt/hostedtoolcache/CodeQL \
             /opt/hostedtoolcache/Python \
-            /opt/hostedtoolcache/Ruby
+            /opt/hostedtoolcache/Ruby \
+            /opt/hostedtoolcache/Go \
+            /opt/hostedtoolcache/Java \
+            /opt/hostedtoolcache/PHP \
+            /opt/hostedtoolcache/Boost \
+            /opt/hostedtoolcache/CMake \
+            /opt/hostedtoolcache/Miniconda \
+            /opt/hostedtoolcache/PyPy \
+            /usr/local/lib/heroku \
+            /usr/local/share/chromium \
+            /usr/share/miniconda \
+            /usr/local/lib/R \
+            /usr/local/.ghcup \
+            /usr/local/julia* \
+            /usr/local/texlive \
+            /usr/share/az_* \
+            /opt/az \
+            /opt/microsoft \
+            /opt/mssql \
+            /usr/share/kotlinc \
+            /usr/local/share/gradle* \
+            /usr/local/share/sbt \
+            /usr/local/share/powershell \
+            /usr/local/graalvm \
+            /usr/local/lib/android \
+            /usr/local/share/vcpkg
+
+          echo "=== Removing Docker images ==="
+          docker rmi $(docker images -q) 2>/dev/null || true
+          sudo rm -rf /var/lib/docker
+
+          echo "=== Removing apt caches ==="
           sudo apt-get clean
           sudo rm -rf /var/lib/apt/lists/*
-          df -h
+
+          echo "=== Removing snap packages ==="
+          sudo snap list --no-legend | awk '{print $1}' | xargs -I{} sudo snap remove --purge {} 2>/dev/null || true
+
+          echo "=== Removing temp files ==="
+          sudo rm -rf /tmp/* /var/tmp/*
+
+          echo "=== Final disk usage ==="
+          df -h /
 
       - name: Install build dependencies
         run: |
@@ -116,6 +159,20 @@ jobs:
         run: ccache -s
 
       # ── Package ──────────────────────────────────────────────────────────────
+      - name: Free up space after build
+        run: |
+          echo "=== Disk usage after build ==="
+          df -h /
+          echo "=== Cleaning up build artifacts ==="
+          rm -rf "$GITHUB_WORKSPACE/build/stage2" 2>/dev/null || true
+          rm -rf "$GITHUB_WORKSPACE/build/stage1" 2>/dev/null || true
+          rm -rf "$GITHUB_WORKSPACE/build/profiles" 2>/dev/null || true
+          rm -rf "$GITHUB_WORKSPACE/build/workload" 2>/dev/null || true
+          rm -rf "$GITHUB_WORKSPACE/build/kernel-workload" 2>/dev/null || true
+          sudo apt-get clean 2>/dev/null || true
+          sudo rm -rf /var/lib/apt/lists/*
+          echo "=== Disk usage after cleanup ==="
+          df -h /
       - name: Package toolchain + generate manifest
         id: package
         run: bash scripts/package.sh

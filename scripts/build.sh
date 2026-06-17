@@ -195,6 +195,13 @@ stage1_build() {
 
   export STAGE1_CC="$s1_install/bin/clang"
   export STAGE1_CXX="$s1_install/bin/clang++"
+
+  # Remove object files from stage1 build to save disk space
+  # Keep only binaries needed for profile collection
+  log "Removing Stage 1 object files to free disk space ..."
+  find "$s1_build" -name "*.o" -delete 2>/dev/null || true
+  find "$s1_build" -name "*.obj" -delete 2>/dev/null || true
+  df -h / 2>/dev/null | tail -1 || true
 }
 
 # ─── PGO Profile Collection: SQLite ───────────────────────────────────────────
@@ -345,6 +352,35 @@ cleanup_stage1_artifacts() {
 
   # Remove ccache stats (regenerated on demand)
   rm -f "$BUILD_DIR/.ccache_stats" 2>/dev/null || true
+
+  # Remove unnecessary files from stage1-install to save space
+  local s1_install="$BUILD_DIR/stage1-install"
+  if [[ -d "$s1_install" ]]; then
+    # Remove docs, examples, cmake files from stage1-install (not needed for stage2)
+    rm -rf "$s1_install/lib/cmake" 2>/dev/null || true
+    rm -rf "$s1_install/share" 2>/dev/null || true
+    rm -rf "$s1_install/include" 2>/dev/null || true
+    # Remove unnecessary stage1 binaries (keep only clang, clang++, lld, llvm-profdata)
+    for tool in "$s1_install/bin/"*; do
+      local name
+      name=$(basename "$tool")
+      case "$name" in
+        clang|clang++|lld|ld.lld|llvm-profdata|llvm-ar|llvm-nm|llvm-objcopy|llvm-objdump|llvm-strip)
+          ;; # Keep these
+        *)
+          rm -f "$tool" 2>/dev/null || true
+          ;;
+      esac
+    done
+    log "Cleaned up stage1-install"
+  fi
+
+  # Compress the LLVM source tree after cloning (saves ~1GB)
+  if [[ -d "$LLVM_DIR/.git" ]]; then
+    log "Pruning LLVM git objects ..."
+    git -C "$LLVM_DIR" gc --aggressive --prune=now 2>/dev/null || true
+    git -C "$LLVM_DIR" repack -a -d --window=250 --depth=1 2>/dev/null || true
+  fi
 
   df -h / 2>/dev/null | tail -1 || true
   log "Disk cleanup complete"
@@ -570,6 +606,12 @@ main() {
     BUILD_DURATION=$(build_duration)
     export CLANG_VERSION BUILD_DURATION
     export CHANGELOG_FILE=$(gen_changelog)
+
+    # Final cleanup: remove LLVM source tree to free disk space for packaging
+    log "Cleaning up LLVM source tree ..."
+    rm -rf "$LLVM_DIR"
+    rm -rf "$BUILD_DIR/stage2" 2>/dev/null || true
+    df -h / 2>/dev/null | tail -1 || true
 
     log "Build complete! Toolchain installed to: $INSTALL_DIR"
     log "Clang version: $CLANG_VERSION"
