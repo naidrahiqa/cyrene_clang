@@ -314,6 +314,42 @@ collect_profiles() {
   log "PGO profile ready: $PGO_PROF"
 }
 
+# ─── Intermediate Cleanup ─────────────────────────────────────────────────────
+cleanup_stage1_artifacts() {
+  log "Cleaning up Stage 1 artifacts to free disk space ..."
+  local s1_build="$BUILD_DIR/stage1"
+
+  # Remove Stage 1 build tree (keep stage1-install/bin/clang needed for Stage 2)
+  if [[ -d "$s1_build" ]]; then
+    local before
+    before=$(du -sh "$s1_build" 2>/dev/null | cut -f1)
+    rm -rf "$s1_build"
+    log "Removed Stage 1 build dir: $before"
+  fi
+
+  # Remove raw .profraw files (already merged into pgo.prof)
+  if [[ -d "$BUILD_DIR/profiles" ]]; then
+    local before
+    before=$(du -sh "$BUILD_DIR/profiles" 2>/dev/null | cut -f1)
+    rm -rf "$BUILD_DIR/profiles"
+    log "Removed raw profile data: $before"
+  fi
+
+  # Remove SQLite workload download
+  if [[ -d "$BUILD_DIR/workload" ]]; then
+    local before
+    before=$(du -sh "$BUILD_DIR/workload" 2>/dev/null | cut -f1)
+    rm -rf "$BUILD_DIR/workload"
+    log "Removed workload files: $before"
+  fi
+
+  # Remove ccache stats (regenerated on demand)
+  rm -f "$BUILD_DIR/.ccache_stats" 2>/dev/null || true
+
+  df -h / 2>/dev/null | tail -1 || true
+  log "Disk cleanup complete"
+}
+
 # ─── Stage 2: Optimized Final Build ───────────────────────────────────────────
 stage2_build() {
   log "Stage 2: Building optimized CyreneClang ..."
@@ -501,6 +537,8 @@ main() {
     BUILD_STAGE="PGO profile collection"
     export BUILD_STAGE
     if collect_profiles; then
+      cleanup_stage1_artifacts
+
       BUILD_STAGE="Stage 2: Optimized build"
       export BUILD_STAGE
       stage2_build
