@@ -181,6 +181,20 @@ cmake_configure() {
     cmake_extra_args+=("-DCMAKE_RANLIB=$(command -v llvm-ranlib)")
   fi
 
+  # ThinLTO cache flags — only pass when LLD is available (GNU ld rejects them)
+  local thinlto_cache_flags=()
+  if [[ -n "$lld_path" ]]; then
+    thinlto_cache_flags=(
+      "-DCMAKE_SHARED_LINKER_FLAGS=-lc++ -lc++abi -lm -Wl,--thinlto-cache-policy=cache_size_bytes=2g"
+      "-DCMAKE_EXE_LINKER_FLAGS=-Wl,--thinlto-cache-policy=cache_size_bytes=2g"
+      "-DCMAKE_MODULE_LINKER_FLAGS=-Wl,--thinlto-cache-policy=cache_size_bytes=2g"
+    )
+  else
+    thinlto_cache_flags=(
+      "-DCMAKE_SHARED_LINKER_FLAGS=-lc++ -lc++abi -lm"
+    )
+  fi
+
   cmake -S "$src/llvm" -B "$build" -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_INSTALL_PREFIX="$install" \
@@ -197,9 +211,7 @@ cmake_configure() {
     -DCOMPILER_RT_USE_LIBCXX=ON \
     -DCOMPILER_RT_LINK_CXX_LIBRARY=ON \
     -DCOMPILER_RT_ENABLE_PIC=ON \
-    -DCMAKE_SHARED_LINKER_FLAGS="-lc++ -lc++abi -lm -Wl,--thinlto-cache-policy=cache_size_bytes=2g" \
-    -DCMAKE_EXE_LINKER_FLAGS="-Wl,--thinlto-cache-policy=cache_size_bytes=2g" \
-    -DCMAKE_MODULE_LINKER_FLAGS="-Wl,--thinlto-cache-policy=cache_size_bytes=2g" \
+    "${thinlto_cache_flags[@]}" \
     -DCLANG_VENDOR="$CLANG_VENDOR" \
     -DCLANG_ENABLE_ARCMT=OFF \
     -DCLANG_ENABLE_STATIC_ANALYZER=OFF \
