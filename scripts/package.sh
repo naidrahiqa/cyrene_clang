@@ -24,8 +24,8 @@ CLANG_BIN="$INSTALL_DIR/bin/clang"
 [[ -x "$CLANG_BIN" ]] || die "clang binary not found at $CLANG_BIN"
 
 CLANG_VERSION=$("$CLANG_BIN" --version | head -1 | grep -oP '\d+\.\d+\.\d+\S*' | head -1)
-LLVM_COMMIT=$(git -C "$LLVM_DIR" rev-parse --short HEAD 2>/dev/null || echo "unknown")
-LLVM_COMMIT_FULL=$(git -C "$LLVM_DIR" rev-parse HEAD 2>/dev/null || echo "unknown")
+LLVM_COMMIT="${LLVM_COMMIT:-$(git -C "$LLVM_DIR" rev-parse --short HEAD 2>/dev/null || echo "unknown")}"
+LLVM_COMMIT_FULL="${LLVM_COMMIT_FULL:-$(git -C "$LLVM_DIR" rev-parse HEAD 2>/dev/null || echo "unknown")}"
 BUILD_DATE=$(date -u +%Y-%m-%d)
 LTO_MODE="Thin"
 DOWNLOAD_URL="https://github.com/$REPO/releases/download/$TAG/cyrene-clang-$TAG.tar.zst"
@@ -114,6 +114,10 @@ log "Notes written to $NOTES"
 cp "$MANIFEST" "$(dirname "$(dirname "$0")")/clang-version.txt"
 
 log "Packaging complete."
+if [[ -n "${GITHUB_ENV:-}" ]]; then
+  echo "TARBALL_NAME=$(basename "$TARBALL")" >> "$GITHUB_ENV"
+  echo "PACKAGE_SIZE=$TARBALL_SIZE" >> "$GITHUB_ENV"
+fi
 echo "TARBALL=$TARBALL" >> "${GITHUB_OUTPUT:-/dev/null}"
 echo "RELEASE_TAG=$TAG" >> "${GITHUB_OUTPUT:-/dev/null}"
 echo "CLANG_VERSION=$CLANG_VERSION" >> "${GITHUB_OUTPUT:-/dev/null}"

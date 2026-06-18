@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Cyrene Clang — Enhanced Telegram Notification Script
-# Sends build status notifications via Telegram Bot API with rich formatting,
+# Sends build status notifications via Telegram Bot API with rich HTML formatting,
 # build metadata, and changelog support.
 # Usage: ./notify.sh <started|success|failure|error_dump|changelog|release>
 set -euo pipefail
@@ -11,12 +11,28 @@ MESSAGE_TYPE="${1:-}"
 
 [[ -n "$BOT_TOKEN" && -n "$CHAT_ID" ]] || exit 0
 
+escape_html() {
+  local input="$1"
+  echo "$input" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g'
+}
+
+convert_markdown_to_html() {
+  local input="$1"
+  local escaped
+  escaped=$(escape_html "$input")
+  # Convert bold (*text*) to <b>text</b>
+  escaped=$(echo "$escaped" | sed -E 's/\*([^*]+)\*/<b>\1<\/b>/g')
+  # Convert inline code (`code`) to <code>code</code>
+  escaped=$(echo "$escaped" | sed -E 's/`([^`]+)`/<code>\1<\/code>/g')
+  echo "$escaped"
+}
+
 send_msg() {
   local text="$1"
   curl -s -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" \
     -d chat_id="$CHAT_ID" \
     -d text="$text" \
-    -d parse_mode="Markdown" \
+    -d parse_mode="HTML" \
     -d disable_web_page_preview=true > /dev/null 2>&1 || true
 }
 
@@ -25,7 +41,7 @@ send_msg_to() {
   curl -s -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" \
     -d chat_id="$cid" \
     -d text="$text" \
-    -d parse_mode="Markdown" \
+    -d parse_mode="HTML" \
     -d disable_web_page_preview=true > /dev/null 2>&1 || true
 }
 
@@ -58,35 +74,35 @@ ERROR_DUMP_FILE="${ERROR_DUMP_FILE:-}"
 LINE="━━━━━━━━━━━━━━━━━━━━"
 
 fmt_section() { echo "$LINE"; }
-fmt_header() { echo "🤖 *$1*
+fmt_header() { echo "🤖 <b>$1</b>
 $LINE"; }
-fmt_kv() { echo "$1 $2: \`$3\`"; }
+fmt_kv() { echo "$1 $2: <code>$3</code>"; }
 fmt_kv_raw() { echo "$1 $2: $3"; }
 
 fmt_commit_link() {
   local commit="$1"
   if [[ -n "$commit" && "$commit" != "unknown" ]]; then
-    echo "🔧 Commit: [\`${commit:0:7}\`](https://github.com/llvm/llvm-project/commit/$commit)"
+    echo "🔧 Commit: <a href=\"https://github.com/llvm/llvm-project/commit/$commit\"><code>${commit:0:7}</code></a>"
   else
-    echo "🔧 Commit: \`pending\` _(will update after clone)_"
+    echo "🔧 Commit: <code>pending</code> <i>(will update after clone)</i>"
   fi
 }
 
 fmt_llvm_link() {
   local commit="$1"
   if [[ -n "$commit" && "$commit" != "unknown" ]]; then
-    echo "⚙️ LLVM: [\`${commit:0:7}\`](https://github.com/llvm/llvm-project/commit/$commit)"
+    echo "⚙️ LLVM Commit: <a href=\"https://github.com/llvm/llvm-project/commit/$commit\"><code>${commit:0:7}</code></a>"
   else
-    echo "⚙️ LLVM: \`unknown\`"
+    echo "⚙️ LLVM Commit: <code>pending (will clone)</code>"
   fi
 }
 
 fmt_cyrene_link() {
   local commit="$1"
   if [[ -n "$commit" && "$commit" != "unknown" ]]; then
-    echo "🔧 Cyrene Clang: [\`${commit:0:7}\`](https://github.com/$REPO/commit/$commit)"
+    echo "🔧 Cyrene Clang: <a href=\"https://github.com/$REPO/commit/$commit\"><code>${commit:0:7}</code></a>"
   else
-    echo "🔧 Cyrene Clang: \`unknown\`"
+    echo "🔧 Cyrene Clang: <code>unknown</code>"
   fi
 }
 
@@ -95,11 +111,11 @@ case "$MESSAGE_TYPE" in
   started)
     MSG="$(fmt_header "Cyrene Clang Build #$RUN_NUMBER Started")"
     MSG="$MSG
-🛠 *Build #$RUN_NUMBER triggered*"
+🛠 <b>Build #$RUN_NUMBER triggered</b>"
     MSG="$MSG
 $(fmt_cyrene_link "$CYRENE_COMMIT")"
     MSG="$MSG
-📌 Branch: \`$LLVM_BRANCH\`"
+📌 Branch: <code>$LLVM_BRANCH</code>"
     MSG="$MSG
 $(fmt_llvm_link "$LLVM_COMMIT")"
     MSG="$MSG
@@ -112,18 +128,19 @@ $(fmt_llvm_link "$LLVM_COMMIT")"
 📝 Patches: $PATCH_COUNT pending"
     MSG="$MSG
 $(fmt_section)
-🚀 *Building custom LLVM/Clang for Android kernel development*"
+🚀 <b>Building custom LLVM/Clang for Android kernel development</b>"
     MSG="$MSG
 👋 Queued at $(date -u +%H:%M:%S) UTC"
     MSG="$MSG
-🔗 [View Run #$RUN_NUMBER]($RUN_URL)"
+🔗 <a href=\"$RUN_URL\">View Run #$RUN_NUMBER</a>"
     send_msg "$MSG"
     ;;
 
   success)
     CHANGELOG_TEXT=""
     if [[ -n "$CHANGELOG_FILE" && -f "$CHANGELOG_FILE" ]]; then
-      CHANGELOG_TEXT=$(head -c 1500 "$CHANGELOG_FILE" 2>/dev/null || true)
+      raw_changelog=$(cat "$CHANGELOG_FILE" 2>/dev/null || true)
+      CHANGELOG_TEXT=$(convert_markdown_to_html "$raw_changelog" | head -c 1500 || true)
     fi
 
     PGO_STR="✅ Enabled"
@@ -131,11 +148,11 @@ $(fmt_section)
 
     MSG="$(fmt_header "Cyrene Clang Build #$RUN_NUMBER SUCCEEDED")"
     MSG="$MSG
-✅ *Build completed successfully!*
-⏱ Duration: \`$BUILD_DURATION\`"
+✅ <b>Build completed successfully!</b>
+⏱ Duration: <code>$BUILD_DURATION</code>"
     MSG="$MSG
 $(fmt_section)
-🔧 *Toolchain Info:*"
+🔧 <b>Toolchain Info:</b>"
     MSG="$MSG
 🔧 Clang: $CLANG_VERSION"
     MSG="$MSG
@@ -145,13 +162,13 @@ $(fmt_llvm_link "$LLVM_COMMIT")"
     MSG="$MSG
 ⚙️ PGO: $PGO_STR | 🎯 LTO: $LTO_MODE"
     MSG="$MSG
-📌 Branch: \`$LLVM_BRANCH\`"
+📌 Branch: <code>$LLVM_BRANCH</code>"
     MSG="$MSG
 📆 Date: $BUILD_DATE"
 
     MSG="$MSG
 $(fmt_section)
-📦 *Release Package:*"
+📦 <b>Release Package:</b>"
     MSG="$MSG
 📦 Tag: ${RELEASE_TAG:-none}"
     MSG="$MSG
@@ -163,16 +180,14 @@ $(fmt_section)
     if [[ -n "$RELEASE_TAG" ]]; then
       MSG="$MSG
 $(fmt_section)
-🚀 *Quick Download:*
-\`\`\`
-wget $RELEASE_URL/download/$RELEASE_TAG/$TARBALL_NAME
-\`\`\`"
+🚀 <b>Quick Download:</b>
+<pre><code>wget $RELEASE_URL/download/$RELEASE_TAG/$TARBALL_NAME</code></pre>"
       MSG="$MSG
-🔗 [View Release]($RELEASE_URL)"
+🔗 <a href=\"$RELEASE_URL\">View Release</a>"
     fi
 
     MSG="$MSG
-🔗 [View Run #$RUN_NUMBER]($RUN_URL)"
+🔗 <a href=\"$RUN_URL\">View Run #$RUN_NUMBER</a>"
     send_msg "$MSG"
 
     if [[ -n "$CHANGELOG_TEXT" ]]; then
@@ -181,7 +196,7 @@ wget $RELEASE_URL/download/$RELEASE_TAG/$TARBALL_NAME
 $CHANGELOG_TEXT"
       CHANGELOG_MSG="$CHANGELOG_MSG
 $(fmt_section)
-🔗 [View Full Changelog](https://github.com/$REPO/releases/tag/$RELEASE_TAG)"
+🔗 <a href=\"https://github.com/$REPO/releases/tag/$RELEASE_TAG\">View Full Changelog</a>"
       send_msg "$CHANGELOG_MSG"
     fi
     ;;
@@ -190,18 +205,21 @@ $(fmt_section)
     ERROR_SNIPPET=""
     ERROR_FIRST_LINE=""
     if [[ -n "$ERROR_LOG" ]]; then
-      ERROR_SNIPPET=$(echo "$ERROR_LOG" | tail -c 1500)
+      ERROR_SNIPPET=$(echo "$ERROR_LOG" | tail -c 1000)
       ERROR_FIRST_LINE=$(echo "$ERROR_LOG" | grep -i "error\|fatal\|failed" | head -1 | head -c 120)
     elif [[ -n "$ERROR_DUMP_FILE" && -f "$ERROR_DUMP_FILE" && -s "$ERROR_DUMP_FILE" ]]; then
-      ERROR_SNIPPET=$(tail -c 1500 "$ERROR_DUMP_FILE" 2>/dev/null || true)
+      ERROR_SNIPPET=$(tail -c 1000 "$ERROR_DUMP_FILE" 2>/dev/null || true)
       ERROR_FIRST_LINE=$(grep -i "error\|fatal\|failed" "$ERROR_DUMP_FILE" 2>/dev/null | head -1 | head -c 120)
     fi
+
+    ERROR_SNIPPET=$(escape_html "$ERROR_SNIPPET")
+    ERROR_FIRST_LINE=$(escape_html "$ERROR_FIRST_LINE")
 
     MSG="$(fmt_header "Cyrene Clang Build #$RUN_NUMBER FAILED")"
     MSG="$MSG
 $(fmt_cyrene_link "$CYRENE_COMMIT")"
     MSG="$MSG
-📌 Branch: \`$LLVM_BRANCH\`"
+📌 Branch: <code>$LLVM_BRANCH</code>"
     MSG="$MSG
 $(fmt_llvm_link "$LLVM_COMMIT")"
     MSG="$MSG
@@ -209,24 +227,22 @@ $(fmt_llvm_link "$LLVM_COMMIT")"
     MSG="$MSG
 📆 Date: $BUILD_DATE"
     MSG="$MSG
-📝 Stage: \`${BUILD_STAGE:-unknown}\`"
+📝 Stage: <code>${BUILD_STAGE:-unknown}</code>"
     MSG="$MSG
-⏱ Duration: \`${BUILD_DURATION:-unknown}\`"
+⏱ Duration: <code>${BUILD_DURATION:-unknown}</code>"
 
     if [[ -n "$ERROR_FIRST_LINE" ]]; then
       MSG="$MSG
 $(fmt_section)
-🐛 *Error:*
-\`\`\`
-$ERROR_FIRST_LINE
-\`\`\`"
+🐛 <b>Error:</b>
+<pre><code>$ERROR_FIRST_LINE</code></pre>"
     fi
 
     MSG="$MSG
 $(fmt_section)
-⚡ *Quick Fix Suggestions:*"
+⚡ <b>Quick Fix Suggestions:</b>"
     MSG="$MSG
-• Check if LLVM branch \`$LLVM_BRANCH\` exists"
+• Check if LLVM branch <code>$LLVM_BRANCH</code> exists"
     MSG="$MSG
 • Verify patch compatibility with upstream"
     MSG="$MSG
@@ -237,19 +253,17 @@ $(fmt_section)
     if [[ -n "$ERROR_SNIPPET" ]]; then
       MSG="$MSG
 $(fmt_section)
-🔍 *Build Log (last 50 lines):*
-\`\`\`
-$ERROR_SNIPPET
-\`\`\`"
+🔍 <b>Build Log (last 1000 chars):</b>
+<pre><code>$ERROR_SNIPPET</code></pre>"
     else
       MSG="$MSG
 $(fmt_section)
-ℹ️ _No error log available — build may have failed before logging started_"
+ℹ️ <i>No error log available — build may have failed before logging started</i>"
     fi
 
     MSG="$MSG
 $(fmt_section)
-🔗 [View Full Run #$RUN_NUMBER]($RUN_URL)"
+🔗 <a href=\"$RUN_URL\">View Full Run #$RUN_NUMBER</a>"
     send_msg "$MSG"
     ;;
 
@@ -262,18 +276,21 @@ $(fmt_section)
       ERROR_FIRST_LINE=$(echo "$ERROR_LOG" | grep -i "error\|fatal\|failed" | head -1 | head -c 150)
     fi
     if [[ -z "$FULL_LOG" && -n "$ERROR_DUMP_FILE" && -f "$ERROR_DUMP_FILE" && -s "$ERROR_DUMP_FILE" ]]; then
-      FULL_LOG=$(tail -c 4000 "$ERROR_DUMP_FILE" 2>/dev/null || true)
+      FULL_LOG=$(tail -c 3000 "$ERROR_DUMP_FILE" 2>/dev/null || true)
       ERROR_FIRST_LINE=$(grep -i "error\|fatal\|failed" "$ERROR_DUMP_FILE" 2>/dev/null | head -1 | head -c 150)
     fi
 
+    FULL_LOG=$(escape_html "$FULL_LOG")
+    ERROR_FIRST_LINE=$(escape_html "$ERROR_FIRST_LINE")
+
     MSG="$(fmt_header "Cyrene Clang Build #$RUN_NUMBER — Error Dump")"
     MSG="$MSG
-🐛 *Full error log from failed build*"
+🐛 <b>Full error log from failed build</b>"
     MSG="$MSG
 $(fmt_section)
 $(fmt_cyrene_link "$CYRENE_COMMIT")"
     MSG="$MSG
-📌 Branch: \`$LLVM_BRANCH\`"
+📌 Branch: <code>$LLVM_BRANCH</code>"
     MSG="$MSG
 $(fmt_llvm_link "$LLVM_COMMIT")"
     MSG="$MSG
@@ -281,47 +298,44 @@ $(fmt_llvm_link "$LLVM_COMMIT")"
     MSG="$MSG
 🎯 Targets: $TARGETS"
     MSG="$MSG
-📝 Stage: \`${BUILD_STAGE:-unknown}\`"
+📝 Stage: <code>${BUILD_STAGE:-unknown}</code>"
     MSG="$MSG
-⏱ Duration: \`${BUILD_DURATION:-unknown}\`"
+⏱ Duration: <code>${BUILD_DURATION:-unknown}</code>"
 
     if [[ -n "$ERROR_FIRST_LINE" ]]; then
       MSG="$MSG
 $(fmt_section)
-⚡ *First Error:*
-\`\`\`
-$ERROR_FIRST_LINE
-\`\`\`"
+⚡ <b>First Error:</b>
+<pre><code>$ERROR_FIRST_LINE</code></pre>"
     fi
 
     if [[ -n "$FULL_LOG" ]]; then
       MSG="$MSG
 $(fmt_section)
-🔍 *Build Log (last 4000 chars):*
-\`\`\`
-$FULL_LOG
-\`\`\`"
+🔍 <b>Build Log (last 3000 chars):</b>
+<pre><code>$FULL_LOG</code></pre>"
     else
       MSG="$MSG
 $(fmt_section)
-ℹ️ _No error log available — build may have failed before logging started_"
+ℹ️ <i>No error log available — build may have failed before logging started</i>"
     fi
 
     MSG="$MSG
 $(fmt_section)
-🔗 [View Run #$RUN_NUMBER]($RUN_URL)"
+🔗 <a href=\"$RUN_URL\">View Run #$RUN_NUMBER</a>"
     send_msg_to "$ERROR_DUMP_CHAT_ID" "$MSG"
     ;;
 
   changelog)
     if [[ -n "$CHANGELOG_FILE" && -f "$CHANGELOG_FILE" ]]; then
       CONTENT=$(cat "$CHANGELOG_FILE")
+      HTML_CONTENT=$(convert_markdown_to_html "$CONTENT")
       MSG="$(fmt_header "Build #$RUN_NUMBER Changelog")"
       MSG="$MSG
-$CONTENT"
+$HTML_CONTENT"
       MSG="$MSG
 $(fmt_section)
-🔗 [View Release](https://github.com/$REPO/releases/tag/$RELEASE_TAG)"
+🔗 <a href=\"https://github.com/$REPO/releases/tag/$RELEASE_TAG\">View Release</a>"
       send_msg "$MSG"
     fi
     ;;
@@ -330,10 +344,10 @@ $(fmt_section)
     RELEASE_URL="https://github.com/$REPO/releases/tag/$RELEASE_TAG"
     MSG="$(fmt_header "Cyrene Clang $RELEASE_TAG Released")"
     MSG="$MSG
-✅ *Release published successfully!*"
+✅ <b>Release published successfully!</b>"
     MSG="$MSG
 $(fmt_section)
-📦 *Release Info:*"
+📦 <b>Release Info:</b>"
     MSG="$MSG
 📦 Tag: $RELEASE_TAG"
     MSG="$MSG
@@ -342,12 +356,10 @@ $(fmt_section)
 📦 Size: ${PACKAGE_SIZE:-unknown}"
     MSG="$MSG
 $(fmt_section)
-🚀 *Quick Download:*
-\`\`\`
-wget $RELEASE_URL/download/$RELEASE_TAG/${TARBALL_NAME:-cyrene-clang.tar.zst}
-\`\`\`"
+🚀 <b>Quick Download:</b>
+<pre><code>wget $RELEASE_URL/download/$RELEASE_TAG/${TARBALL_NAME:-cyrene-clang.tar.zst}</code></pre>"
     MSG="$MSG
-🔗 [View Release]($RELEASE_URL)"
+🔗 <a href=\"$RELEASE_URL\">View Release</a>"
     send_msg "$MSG"
     ;;
 esac

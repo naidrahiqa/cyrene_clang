@@ -57,6 +57,7 @@ jobs:
 
       - name: Free up disk space
         run: |
+          echo "BUILD_STAGE=Freeing disk space" >> "$GITHUB_ENV"
           echo "=== Initial disk usage ==="
           df -h /
 
@@ -99,6 +100,20 @@ jobs:
             /usr/local/lib/android \
             /usr/local/share/vcpkg
 
+          echo "=== Purging large apt packages ==="
+          sudo apt-get purge -y \
+            azure-cli \
+            google-cloud-sdk \
+            google-cloud-cli \
+            google-chrome-stable \
+            microsoft-edge-stable \
+            firefox \
+            mono-devel \
+            msbuild \
+            libmono-* \
+            &>/dev/null || true
+          sudo apt-get autoremove -y &>/dev/null || true
+
           echo "=== Removing Docker images ==="
           docker rmi $(docker images -q) 2>/dev/null || true
           sudo rm -rf /var/lib/docker
@@ -133,6 +148,7 @@ jobs:
 
       - name: Install build dependencies
         run: |
+          echo "BUILD_STAGE=Installing dependencies" >> "$GITHUB_ENV"
           sudo apt-get update
           sudo apt-get install -y \
             cmake ninja-build python3 git curl unzip \
@@ -163,7 +179,9 @@ jobs:
         run: chmod +x scripts/*.sh
 
       - name: Run build
-        run: bash scripts/build.sh
+        run: |
+          echo "BUILD_STAGE=Running build" >> "$GITHUB_ENV"
+          bash scripts/build.sh
         env:
           JOBS: 4
           LLVM_BRANCH: ${{ env.LLVM_BRANCH }}
@@ -189,7 +207,9 @@ jobs:
           df -h /
       - name: Package toolchain + generate manifest
         id: package
-        run: bash scripts/package.sh
+        run: |
+          echo "BUILD_STAGE=Packaging toolchain" >> "$GITHUB_ENV"
+          bash scripts/package.sh
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
 
@@ -207,6 +227,10 @@ jobs:
           retention-days: 7
 
       # ── Release ──────────────────────────────────────────────────────────────
+      - name: Set release stage
+        if: ${{ github.event.inputs.release == 'true' || github.event_name == 'schedule' }}
+        run: echo "BUILD_STAGE=Publishing Release" >> "$GITHUB_ENV"
+
       - name: Publish GitHub Release
         if: ${{ github.event.inputs.release == 'true' || github.event_name == 'schedule' }}
         uses: softprops/action-gh-release@v2
@@ -245,3 +269,10 @@ jobs:
       - name: Notify release
         if: ${{ (github.event.inputs.release == 'true' || github.event_name == 'schedule') && success() }}
         run: bash scripts/notify.sh release
+
+      - name: Notify build failure
+        if: failure()
+        run: |
+          if [[ "${NOTIFIED_FAILURE:-false}" != "true" ]]; then
+            bash scripts/notify.sh failure
+          fi

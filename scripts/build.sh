@@ -197,7 +197,9 @@ cmake_configure() {
     -DCOMPILER_RT_USE_LIBCXX=ON \
     -DCOMPILER_RT_LINK_CXX_LIBRARY=ON \
     -DCOMPILER_RT_ENABLE_PIC=ON \
-    -DCMAKE_SHARED_LINKER_FLAGS="-lc++ -lc++abi -lm" \
+    -DCMAKE_SHARED_LINKER_FLAGS="-lc++ -lc++abi -lm -Wl,--thinlto-cache-policy=cache_size_bytes=2g" \
+    -DCMAKE_EXE_LINKER_FLAGS="-Wl,--thinlto-cache-policy=cache_size_bytes=2g" \
+    -DCMAKE_MODULE_LINKER_FLAGS="-Wl,--thinlto-cache-policy=cache_size_bytes=2g" \
     -DCLANG_VENDOR="$CLANG_VENDOR" \
     -DCLANG_ENABLE_ARCMT=OFF \
     -DCLANG_ENABLE_STATIC_ANALYZER=OFF \
@@ -232,11 +234,9 @@ stage1_build() {
   export STAGE1_CC="$s1_install/bin/clang"
   export STAGE1_CXX="$s1_install/bin/clang++"
 
-  # Remove object files from stage1 build to save disk space
-  # Keep only binaries needed for profile collection
-  log "Removing Stage 1 object files to free disk space ..."
-  find "$s1_build" -name "*.o" -delete 2>/dev/null || true
-  find "$s1_build" -name "*.obj" -delete 2>/dev/null || true
+  # Remove Stage 1 build directory completely (keep stage1-install which contains the compiler)
+  log "Removing Stage 1 build directory to free disk space ..."
+  rm -rf "$s1_build"
   df -h / 2>/dev/null | tail -1 || true
 }
 
@@ -626,7 +626,17 @@ main() {
 
   # Refresh commit after patching
   LLVM_COMMIT=$(git -C "$LLVM_DIR" rev-parse --short HEAD 2>/dev/null || echo "unknown")
-  export LLVM_COMMIT
+  LLVM_COMMIT_FULL=$(git -C "$LLVM_DIR" rev-parse HEAD 2>/dev/null || echo "unknown")
+  export LLVM_COMMIT LLVM_COMMIT_FULL
+
+  if [[ -n "${GITHUB_ENV:-}" ]]; then
+    echo "LLVM_COMMIT=$LLVM_COMMIT" >> "$GITHUB_ENV"
+    echo "LLVM_COMMIT_FULL=$LLVM_COMMIT_FULL" >> "$GITHUB_ENV"
+  fi
+
+  # Remove .git directory from LLVM source tree to free space (~1.5GB)
+  log "Removing LLVM .git directory to save space ..."
+  rm -rf "$LLVM_DIR/.git"
 
   BUILD_SUCCESS=false
   if [[ "$ENABLE_PGO" == "true" ]]; then
@@ -670,11 +680,17 @@ main() {
 
   if [[ "$BUILD_SUCCESS" == "true" ]]; then
     BUILD_STAGE="Packaging"
-    export BUILD_STAGE
     CLANG_VERSION=$("$INSTALL_DIR/bin/clang" --version | head -1 | grep -oP '\d+\.\d+\.\d+\S*' | head -1)
     BUILD_DURATION=$(build_duration)
-    export CLANG_VERSION BUILD_DURATION
-    export CHANGELOG_FILE=$(gen_changelog)
+    CHANGELOG_FILE=$(gen_changelog)
+    export BUILD_STAGE CLANG_VERSION BUILD_DURATION CHANGELOG_FILE
+
+    if [[ -n "${GITHUB_ENV:-}" ]]; then
+      echo "BUILD_STAGE=$BUILD_STAGE" >> "$GITHUB_ENV"
+      echo "CLANG_VERSION=$CLANG_VERSION" >> "$GITHUB_ENV"
+      echo "BUILD_DURATION=$BUILD_DURATION" >> "$GITHUB_ENV"
+      echo "CHANGELOG_FILE=$CHANGELOG_FILE" >> "$GITHUB_ENV"
+    fi
 
     # Final cleanup: remove LLVM source tree to free disk space for packaging
     log "Cleaning up LLVM source tree ..."
@@ -700,11 +716,15 @@ cleanup() {
 
     export BUILD_DURATION
     export ERROR_LOG="${error_log:-${ERROR_LOG:-}}"
-    export BUILD_STAGE="Build Failed"
+    export BUILD_STAGE="${BUILD_STAGE:-Build Failed}"
     export ERROR_DUMP_CHAT_ID="${ERROR_DUMP_CHAT_ID:-}"
     export ERROR_DUMP_FILE="${ERROR_DUMP_FILE:-$BUILD_DIR/build.log}"
     bash "$NOTIFY_SCRIPT" failure || true
     bash "$NOTIFY_SCRIPT" error_dump || true
+
+    if [[ -n "${GITHUB_ENV:-}" ]]; then
+      echo "NOTIFIED_FAILURE=true" >> "$GITHUB_ENV"
+    fi
   fi
 }
 trap cleanup EXIT
