@@ -136,14 +136,40 @@ cmake_configure() {
 
   local cmake_extra_args=()
 
+  # Warn about stale system gold plugin (version mismatch with LTO)
+  if [[ -f /usr/lib/bfd-plugins/LLVMgold.so ]]; then
+    warn "System gold plugin detected at /usr/lib/bfd-plugins/LLVMgold.so"
+    warn "This may cause LTO errors if the plugin LLVM version differs from the build."
+    warn "Consider: sudo apt remove llvm-*-linker-tools  or  remove it manually."
+  fi
+  if [[ -f /usr/lib/llvm-16/lib/LLVMgold.so ]]; then
+    warn "LLVM 16 gold plugin detected — remove with: sudo apt remove llvm-16-linker-tools"
+  fi
+
+  # Disable gold plugin build (not needed; we use LLD for ThinLTO)
+  cmake_extra_args+=("-DLLVM_BINUTILS_INCDIR=")
+
   # Enable ccache if available
   if command -v ccache &>/dev/null; then
     cmake_extra_args+=("-DLLVM_CCACHE_BUILD=ON")
   fi
 
   # Use LLD as the linker if available (much faster than GNU ld)
-  if command -v ld.lld &>/dev/null || command -v lld &>/dev/null; then
-    cmake_extra_args+=("-DLLVM_USE_LINKER=lld")
+  local lld_path=""
+  if command -v ld.lld &>/dev/null; then
+    lld_path=$(command -v ld.lld)
+    cmake_extra_args+=("-DLLVM_USE_LINKER=lld" "-DCMAKE_LINKER=$lld_path")
+  elif command -v lld &>/dev/null; then
+    lld_path=$(command -v lld)
+    cmake_extra_args+=("-DLLVM_USE_LINKER=lld" "-DCMAKE_LINKER=$lld_path")
+  fi
+
+  # Use llvm-ar / llvm-ranlib to avoid triggering the system's gold plugin
+  if command -v llvm-ar &>/dev/null; then
+    cmake_extra_args+=("-DCMAKE_AR=$(command -v llvm-ar)")
+  fi
+  if command -v llvm-ranlib &>/dev/null; then
+    cmake_extra_args+=("-DCMAKE_RANLIB=$(command -v llvm-ranlib)")
   fi
 
   cmake -S "$src/llvm" -B "$build" -G Ninja \
