@@ -165,21 +165,30 @@ cmake_configure() {
 
   # Use LLD as the linker if available (much faster than GNU ld)
   local lld_path=""
-  if command -v ld.lld &>/dev/null; then
-    lld_path=$(command -v ld.lld)
-    cmake_extra_args+=("-DLLVM_USE_LINKER=lld" "-DCMAKE_LINKER=$lld_path")
-  elif command -v lld &>/dev/null; then
-    lld_path=$(command -v lld)
-    cmake_extra_args+=("-DLLVM_USE_LINKER=lld" "-DCMAKE_LINKER=$lld_path")
+  for lld_name in ld.lld ld.lld-18 ld.lld-17 ld.lld-16 ld.lld-15 ld.lld-14 lld; do
+    if command -v "$lld_name" &>/dev/null; then
+      lld_path=$(command -v "$lld_name")
+      cmake_extra_args+=("-DLLVM_USE_LINKER=lld" "-DCMAKE_LINKER=$lld_path")
+      break
+    fi
+  done
+  if [[ -z "$lld_path" ]]; then
+    warn "LLD not found — ThinLTO cache flags disabled (GNU ld does not support them)"
   fi
 
   # Use llvm-ar / llvm-ranlib to avoid triggering the system's gold plugin
-  if command -v llvm-ar &>/dev/null; then
-    cmake_extra_args+=("-DCMAKE_AR=$(command -v llvm-ar)")
-  fi
-  if command -v llvm-ranlib &>/dev/null; then
-    cmake_extra_args+=("-DCMAKE_RANLIB=$(command -v llvm-ranlib)")
-  fi
+  for ar_name in llvm-ar llvm-ar-18 llvm-ar-17 llvm-ar-16 llvm-ar-15 llvm-ar-14; do
+    if command -v "$ar_name" &>/dev/null; then
+      cmake_extra_args+=("-DCMAKE_AR=$(command -v "$ar_name")")
+      break
+    fi
+  done
+  for ranlib_name in llvm-ranlib llvm-ranlib-18 llvm-ranlib-17 llvm-ranlib-16 llvm-ranlib-15 llvm-ranlib-14; do
+    if command -v "$ranlib_name" &>/dev/null; then
+      cmake_extra_args+=("-DCMAKE_RANLIB=$(command -v "$ranlib_name")")
+      break
+    fi
+  done
 
   # ThinLTO cache flags — only pass when LLD is available (GNU ld rejects them)
   local thinlto_cache_flags=()
