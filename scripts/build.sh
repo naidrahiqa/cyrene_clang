@@ -174,6 +174,8 @@ cmake_configure() {
   done
   if [[ -z "$lld_path" ]]; then
     warn "LLD not found — ThinLTO cache flags disabled (GNU ld does not support them)"
+  else
+    log "Using linker: $lld_path"
   fi
 
   # Use llvm-ar / llvm-ranlib to avoid triggering the system's gold plugin
