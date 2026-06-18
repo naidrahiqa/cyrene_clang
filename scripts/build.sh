@@ -131,8 +131,8 @@ apply_patches() {
 
 # ─── CMake Configure Helper ───────────────────────────────────────────────────
 cmake_configure() {
-  local src="$1" build="$2" install="$3" projects="$4"
-  shift 4
+  local src="$1" build="$2" install="$3" projects="$4" targets="${5:-$LLVM_TARGETS}"
+  shift 5
 
   local cmake_extra_args=()
 
@@ -153,6 +153,15 @@ cmake_configure() {
   if command -v ccache &>/dev/null; then
     cmake_extra_args+=("-DLLVM_CCACHE_BUILD=ON")
   fi
+
+  # Limit parallel link jobs to 1 to avoid OOM / disk explosion during ThinLTO linking
+  cmake_extra_args+=("-DLLVM_PARALLEL_LINK_JOBS=1")
+
+  # Use shared ThinLTO cache across targets to save disk + time
+  cmake_extra_args+=("-DLLVM_THIN_LTO_CACHE_DIR=$BUILD_DIR/lto-cache")
+
+  # Skip appending git hash to version string (saves rebuilds + disk)
+  cmake_extra_args+=("-DLLVM_APPEND_VC_REV=OFF")
 
   # Use LLD as the linker if available (much faster than GNU ld)
   local lld_path=""
@@ -175,7 +184,7 @@ cmake_configure() {
   cmake -S "$src/llvm" -B "$build" -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_INSTALL_PREFIX="$install" \
-    -DLLVM_TARGETS_TO_BUILD="$LLVM_TARGETS" \
+    -DLLVM_TARGETS_TO_BUILD="$targets" \
     -DLLVM_ENABLE_PROJECTS="$projects" \
     -DLLVM_INCLUDE_TESTS=OFF \
     -DLLVM_INCLUDE_EXAMPLES=OFF \
@@ -207,14 +216,15 @@ stage1_build() {
   # has a modern LTO-compatible linker and builtins to pass CMake compiler checks.
   local stage1_projects="clang;lld;compiler-rt"
 
-  cmake_configure "$LLVM_DIR" "$s1_build" "$s1_install" "$stage1_projects" \
+  cmake_configure "$LLVM_DIR" "$s1_build" "$s1_install" "$stage1_projects" "X86" \
     -DCMAKE_C_COMPILER="$HOST_CC" \
     -DCMAKE_CXX_COMPILER="$HOST_CXX" \
     -DLLVM_ENABLE_LTO=OFF \
     -DLLVM_BUILD_INSTRUMENTED=IR \
     -DCOMPILER_RT_BUILD_SANITIZERS=OFF \
     -DCOMPILER_RT_BUILD_XRAY=OFF \
-    -DCOMPILER_RT_BUILD_LIBFUZZER=OFF
+    -DCOMPILER_RT_BUILD_LIBFUZZER=OFF \
+    -DCOMPILER_RT_BUILD_CRT=OFF
 
   cmake --build "$s1_build" -j"$JOBS" 2>&1 | tee -a "$BUILD_DIR/build.log"
   cmake --install "$s1_build" 2>&1 | tee -a "$BUILD_DIR/build.log"
@@ -386,6 +396,8 @@ cleanup_stage1_artifacts() {
     rm -rf "$s1_install/lib/cmake" 2>/dev/null || true
     rm -rf "$s1_install/share" 2>/dev/null || true
     rm -rf "$s1_install/include" 2>/dev/null || true
+    # Remove static libraries from stage1 (lib/*.a) — saves ~1GB, not needed for stage2
+    find "$s1_install/lib" -name "*.a" -delete 2>/dev/null || true
     # Remove unnecessary stage1 binaries (keep only clang, clang++, lld, llvm-profdata)
     for tool in "$s1_install/bin/"*; do
       local name
@@ -401,12 +413,20 @@ cleanup_stage1_artifacts() {
     log "Cleaned up stage1-install"
   fi
 
-  # Compress the LLVM source tree after cloning (saves ~1GB)
+  # Prune LLVM git aggressively (saves ~1GB)
   if [[ -d "$LLVM_DIR/.git" ]]; then
     log "Pruning LLVM git objects ..."
     git -C "$LLVM_DIR" gc --aggressive --prune=now 2>/dev/null || true
     git -C "$LLVM_DIR" repack -a -d --window=250 --depth=1 2>/dev/null || true
+    # Remove reflog + stash to free more space
+    git -C "$LLVM_DIR" reflog expire --expire=now --all 2>/dev/null || true
   fi
+
+  # Clear ccache stats cache
+  rm -f "$BUILD_DIR/.ccache_stats" 2>/dev/null || true
+
+  # Remove ThinLTO cache from stage1 (not needed for stage2)
+  rm -rf "$BUILD_DIR/lto-cache" 2>/dev/null || true
 
   df -h / 2>/dev/null | tail -1 || true
   log "Disk cleanup complete"
@@ -421,16 +441,36 @@ stage2_build() {
   local old_path="$PATH"
   export PATH="$STAGE1_INSTALL/bin:$PATH"
 
-  cmake_configure "$LLVM_DIR" "$s2_build" "$INSTALL_DIR" "$LLVM_PROJECTS" \
+  cmake_configure "$LLVM_DIR" "$s2_build" "$INSTALL_DIR" "$LLVM_PROJECTS" "" \
     -DCMAKE_C_COMPILER="$STAGE1_CC" \
     -DCMAKE_CXX_COMPILER="$STAGE1_CXX" \
     -DLLVM_ENABLE_LTO=Thin \
     -DCOMPILER_RT_ENABLE_LTO=OFF \
     -DLLVM_PROFDATA_FILE="$PGO_PROF" \
-    -DLLVM_ENABLE_PLUGINS=ON
+    -DLLVM_ENABLE_PLUGINS=ON \
+    -DCOMPILER_RT_BUILD_SANITIZERS=OFF \
+    -DCOMPILER_RT_BUILD_XRAY=OFF \
+    -DCOMPILER_RT_BUILD_LIBFUZZER=OFF \
+    -DCOMPILER_RT_BUILD_PROFILE=OFF \
+    -DCOMPILER_RT_BUILD_CRT=OFF
 
   cmake --build "$s2_build" -j"$JOBS" 2>&1 | tee -a "$BUILD_DIR/build.log"
+
+  # Free disk BEFORE install: remove object files
+  log "Stage 2 build done. Cleaning object files before install ..."
+  find "$s2_build" -name "*.o" -delete 2>/dev/null || true
+  find "$s2_build" -name "*.obj" -delete 2>/dev/null || true
+  rm -rf "$s2_build/lib" 2>/dev/null || true
+  # Remove ThinLTO cache after build (no longer needed)
+  rm -rf "$BUILD_DIR/lto-cache" 2>/dev/null || true
+  df -h / 2>/dev/null | tail -1 || true
+
   cmake --install "$s2_build" 2>&1 | tee -a "$BUILD_DIR/build.log"
+
+  # Wipe entire stage2 build dir after install (saves ~15GB before BOLT)
+  log "Removing Stage 2 build directory ..."
+  rm -rf "$s2_build" 2>/dev/null || true
+  df -h / 2>/dev/null | tail -1 || true
 
   export PATH="$old_path"
 }
@@ -545,7 +585,7 @@ simple_build() {
     cmake_args+=(-DLLVM_ENABLE_LTO=Off)
   fi
 
-  cmake_configure "$LLVM_DIR" "$build" "$INSTALL_DIR" "$LLVM_PROJECTS" "${cmake_args[@]}"
+  cmake_configure "$LLVM_DIR" "$build" "$INSTALL_DIR" "$LLVM_PROJECTS" "" "${cmake_args[@]}"
   cmake --build "$build" -j"$JOBS" 2>&1 | tee -a "$BUILD_DIR/build.log"
   cmake --install "$build" 2>&1 | tee -a "$BUILD_DIR/build.log"
 
@@ -596,11 +636,14 @@ main() {
     export BUILD_STAGE
     stage1_build
 
+    log "Available disk after Stage 1: $(df -h / | tail -1 | awk '{print $4}')"
+
     BUILD_STAGE="PGO profile collection"
     export BUILD_STAGE
     if collect_profiles; then
       cleanup_stage1_artifacts
 
+      log "Available disk before Stage 2: $(df -h / | tail -1 | awk '{print $4}')"
       BUILD_STAGE="Stage 2: Optimized build"
       export BUILD_STAGE
       stage2_build
@@ -636,7 +679,6 @@ main() {
     # Final cleanup: remove LLVM source tree to free disk space for packaging
     log "Cleaning up LLVM source tree ..."
     rm -rf "$LLVM_DIR"
-    rm -rf "$BUILD_DIR/stage2" 2>/dev/null || true
     df -h / 2>/dev/null | tail -1 || true
 
     log "Build complete! Toolchain installed to: $INSTALL_DIR"

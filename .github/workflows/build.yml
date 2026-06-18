@@ -113,6 +113,21 @@ jobs:
           echo "=== Removing temp files ==="
           sudo rm -rf /tmp/* /var/tmp/*
 
+          echo "=== Removing doc/locale (saves ~1GB) ==="
+          sudo rm -rf /usr/share/doc /usr/share/man /usr/share/locale /usr/share/info 2>/dev/null || true
+          sudo rm -rf /usr/local/share/doc /usr/local/share/man 2>/dev/null || true
+
+          echo "=== Removing leftover swap/hibernation ==="
+          sudo swapoff -a 2>/dev/null || true
+          sudo rm -f /swapfile /swap.img 2>/dev/null || true
+
+          echo "=== Removing large logs ==="
+          sudo find /var/log -type f -name "*.log" -mtime +1 -exec truncate -s 0 {} \; 2>/dev/null || true
+          sudo journalctl --rotate --vacuum-time=1s 2>/dev/null || true
+
+          echo "=== Resize ccache to minimum ==="
+          ccache --set-config=max_size=500M 2>/dev/null || true
+
           echo "=== Final disk usage ==="
           df -h /
 
@@ -164,13 +179,12 @@ jobs:
           echo "=== Disk usage after build ==="
           df -h /
           echo "=== Cleaning up build artifacts ==="
-          rm -rf "$GITHUB_WORKSPACE/build/stage2" 2>/dev/null || true
-          rm -rf "$GITHUB_WORKSPACE/build/stage1" 2>/dev/null || true
-          rm -rf "$GITHUB_WORKSPACE/build/profiles" 2>/dev/null || true
-          rm -rf "$GITHUB_WORKSPACE/build/workload" 2>/dev/null || true
-          rm -rf "$GITHUB_WORKSPACE/build/kernel-workload" 2>/dev/null || true
+          rm -rf "$GITHUB_WORKSPACE/build" 2>/dev/null || true
+          rm -rf "$GITHUB_WORKSPACE/llvm-project" 2>/dev/null || true
+          rm -rf ~/.cache/ccache 2>/dev/null || true
           sudo apt-get clean 2>/dev/null || true
           sudo rm -rf /var/lib/apt/lists/*
+          sudo journalctl --rotate --vacuum-time=1s 2>/dev/null || true
           echo "=== Disk usage after cleanup ==="
           df -h /
       - name: Package toolchain + generate manifest
