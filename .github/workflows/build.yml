@@ -60,6 +60,9 @@ jobs:
           echo "BUILD_STAGE=Freeing disk space" >> "$GITHUB_ENV"
           echo "=== Initial disk usage ==="
           df -h /
+          echo "=== Removing runner diagnostic logs ==="
+          rm -rf /home/runner/actions-runner/cached/*/_diag/*.log 2>/dev/null || true
+          rm -rf /home/runner/actions-runner/_diag/*.log 2>/dev/null || true
 
           echo "=== Removing large pre-installed packages ==="
           sudo rm -rf \
@@ -100,6 +103,15 @@ jobs:
             /usr/local/lib/android \
             /usr/local/share/vcpkg
 
+          echo "=== Removing home caches ==="
+          rm -rf /home/runner/.cache 2>/dev/null || true
+          rm -rf /home/runner/.npm 2>/dev/null || true
+          rm -rf /home/runner/.cargo 2>/dev/null || true
+          rm -rf /home/runner/.dotnet 2>/dev/null || true
+          rm -rf /home/runner/.rustup 2>/dev/null || true
+          rm -rf /home/runner/.local/share 2>/dev/null || true
+          rm -rf /home/runner/go 2>/dev/null || true
+
           echo "=== Purging large apt packages ==="
           sudo apt-get purge -y \
             azure-cli \
@@ -123,7 +135,7 @@ jobs:
           sudo rm -rf /var/lib/apt/lists/*
 
           echo "=== Removing snap packages ==="
-          sudo snap list --no-legend | awk '{print $1}' | xargs -I{} sudo snap remove --purge {} 2>/dev/null || true
+          sudo snap list --no-legend 2>/dev/null | awk '{print $1}' | xargs -I{} sudo snap remove --purge {} 2>/dev/null || true
 
           echo "=== Removing temp files ==="
           sudo rm -rf /tmp/* /var/tmp/*
