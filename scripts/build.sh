@@ -13,7 +13,7 @@ ENABLE_PGO="${ENABLE_PGO:-true}"
 ENABLE_BOLT="${ENABLE_BOLT:-true}"
 PGO_WORKLOAD="${PGO_WORKLOAD:-sqlite}"
 
-LLVM_TARGETS="AArch64;ARM;X86"
+LLVM_TARGETS="AArch64"
 LLVM_PROJECTS="clang;lld;compiler-rt;polly"
 CLANG_VENDOR="${CLANG_VENDOR:-CyreneClang}"
 
@@ -165,32 +165,21 @@ cmake_configure() {
 
   # Use LLD as the linker if available (much faster than GNU ld)
   local lld_path=""
-  for lld_name in ld.lld ld.lld-18 ld.lld-17 ld.lld-16 ld.lld-15 ld.lld-14 lld; do
-    if command -v "$lld_name" &>/dev/null; then
-      lld_path=$(command -v "$lld_name")
-      cmake_extra_args+=("-DLLVM_USE_LINKER=lld" "-DCMAKE_LINKER=$lld_path")
-      break
-    fi
-  done
-  if [[ -z "$lld_path" ]]; then
-    warn "LLD not found — ThinLTO cache flags disabled (GNU ld does not support them)"
-  else
-    log "Using linker: $lld_path"
+  if command -v ld.lld &>/dev/null; then
+    lld_path=$(command -v ld.lld)
+    cmake_extra_args+=("-DLLVM_USE_LINKER=lld" "-DCMAKE_LINKER=$lld_path")
+  elif command -v lld &>/dev/null; then
+    lld_path=$(command -v lld)
+    cmake_extra_args+=("-DLLVM_USE_LINKER=lld" "-DCMAKE_LINKER=$lld_path")
   fi
 
   # Use llvm-ar / llvm-ranlib to avoid triggering the system's gold plugin
-  for ar_name in llvm-ar llvm-ar-18 llvm-ar-17 llvm-ar-16 llvm-ar-15 llvm-ar-14; do
-    if command -v "$ar_name" &>/dev/null; then
-      cmake_extra_args+=("-DCMAKE_AR=$(command -v "$ar_name")")
-      break
-    fi
-  done
-  for ranlib_name in llvm-ranlib llvm-ranlib-18 llvm-ranlib-17 llvm-ranlib-16 llvm-ranlib-15 llvm-ranlib-14; do
-    if command -v "$ranlib_name" &>/dev/null; then
-      cmake_extra_args+=("-DCMAKE_RANLIB=$(command -v "$ranlib_name")")
-      break
-    fi
-  done
+  if command -v llvm-ar &>/dev/null; then
+    cmake_extra_args+=("-DCMAKE_AR=$(command -v llvm-ar)")
+  fi
+  if command -v llvm-ranlib &>/dev/null; then
+    cmake_extra_args+=("-DCMAKE_RANLIB=$(command -v llvm-ranlib)")
+  fi
 
   cmake -S "$src/llvm" -B "$build" -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
@@ -243,9 +232,11 @@ stage1_build() {
   export STAGE1_CC="$s1_install/bin/clang"
   export STAGE1_CXX="$s1_install/bin/clang++"
 
-  # Remove Stage 1 build directory completely (keep stage1-install which contains the compiler)
-  log "Removing Stage 1 build directory to free disk space ..."
-  rm -rf "$s1_build"
+  # Remove object files from stage1 build to save disk space
+  # Keep only binaries needed for profile collection
+  log "Removing Stage 1 object files to free disk space ..."
+  find "$s1_build" -name "*.o" -delete 2>/dev/null || true
+  find "$s1_build" -name "*.obj" -delete 2>/dev/null || true
   df -h / 2>/dev/null | tail -1 || true
 }
 
@@ -461,10 +452,7 @@ stage2_build() {
     -DCOMPILER_RT_BUILD_XRAY=OFF \
     -DCOMPILER_RT_BUILD_LIBFUZZER=OFF \
     -DCOMPILER_RT_BUILD_PROFILE=OFF \
-    -DCOMPILER_RT_BUILD_CRT=OFF \
-    -DCMAKE_SHARED_LINKER_FLAGS="-lc++ -lc++abi -lm -Wl,--thinlto-cache-policy=cache_size_bytes=2g" \
-    -DCMAKE_EXE_LINKER_FLAGS="-Wl,--thinlto-cache-policy=cache_size_bytes=2g" \
-    -DCMAKE_MODULE_LINKER_FLAGS="-Wl,--thinlto-cache-policy=cache_size_bytes=2g"
+    -DCOMPILER_RT_BUILD_CRT=OFF
 
   cmake --build "$s2_build" -j"$JOBS" 2>&1 | tee -a "$BUILD_DIR/build.log"
 
@@ -638,17 +626,7 @@ main() {
 
   # Refresh commit after patching
   LLVM_COMMIT=$(git -C "$LLVM_DIR" rev-parse --short HEAD 2>/dev/null || echo "unknown")
-  LLVM_COMMIT_FULL=$(git -C "$LLVM_DIR" rev-parse HEAD 2>/dev/null || echo "unknown")
-  export LLVM_COMMIT LLVM_COMMIT_FULL
-
-  if [[ -n "${GITHUB_ENV:-}" ]]; then
-    echo "LLVM_COMMIT=$LLVM_COMMIT" >> "$GITHUB_ENV"
-    echo "LLVM_COMMIT_FULL=$LLVM_COMMIT_FULL" >> "$GITHUB_ENV"
-  fi
-
-  # Remove .git directory from LLVM source tree to free space (~1.5GB)
-  log "Removing LLVM .git directory to save space ..."
-  rm -rf "$LLVM_DIR/.git"
+  export LLVM_COMMIT
 
   BUILD_SUCCESS=false
   if [[ "$ENABLE_PGO" == "true" ]]; then
@@ -666,6 +644,12 @@ main() {
       cleanup_stage1_artifacts
 
       log "Available disk before Stage 2: $(df -h / | tail -1 | awk '{print $4}')"
+      # Abort early if disk is critically low (Stage 2 ThinLTO needs ~8GB headroom)
+      local avail_kb
+      avail_kb=$(df --output=avail / 2>/dev/null | tail -1 | tr -d ' ')
+      if [[ -n "$avail_kb" && "$avail_kb" -lt 8000000 ]]; then
+        die "Not enough disk space for Stage 2 (${avail_kb}KB available, need ~8GB). Aborting."
+      fi
       BUILD_STAGE="Stage 2: Optimized build"
       export BUILD_STAGE
       stage2_build
@@ -692,17 +676,11 @@ main() {
 
   if [[ "$BUILD_SUCCESS" == "true" ]]; then
     BUILD_STAGE="Packaging"
+    export BUILD_STAGE
     CLANG_VERSION=$("$INSTALL_DIR/bin/clang" --version | head -1 | grep -oP '\d+\.\d+\.\d+\S*' | head -1)
     BUILD_DURATION=$(build_duration)
-    CHANGELOG_FILE=$(gen_changelog)
-    export BUILD_STAGE CLANG_VERSION BUILD_DURATION CHANGELOG_FILE
-
-    if [[ -n "${GITHUB_ENV:-}" ]]; then
-      echo "BUILD_STAGE=$BUILD_STAGE" >> "$GITHUB_ENV"
-      echo "CLANG_VERSION=$CLANG_VERSION" >> "$GITHUB_ENV"
-      echo "BUILD_DURATION=$BUILD_DURATION" >> "$GITHUB_ENV"
-      echo "CHANGELOG_FILE=$CHANGELOG_FILE" >> "$GITHUB_ENV"
-    fi
+    export CLANG_VERSION BUILD_DURATION
+    export CHANGELOG_FILE=$(gen_changelog)
 
     # Final cleanup: remove LLVM source tree to free disk space for packaging
     log "Cleaning up LLVM source tree ..."
@@ -728,15 +706,11 @@ cleanup() {
 
     export BUILD_DURATION
     export ERROR_LOG="${error_log:-${ERROR_LOG:-}}"
-    export BUILD_STAGE="${BUILD_STAGE:-Build Failed}"
+    export BUILD_STAGE="Build Failed"
     export ERROR_DUMP_CHAT_ID="${ERROR_DUMP_CHAT_ID:-}"
     export ERROR_DUMP_FILE="${ERROR_DUMP_FILE:-$BUILD_DIR/build.log}"
     bash "$NOTIFY_SCRIPT" failure || true
     bash "$NOTIFY_SCRIPT" error_dump || true
-
-    if [[ -n "${GITHUB_ENV:-}" ]]; then
-      echo "NOTIFIED_FAILURE=true" >> "$GITHUB_ENV"
-    fi
   fi
 }
 trap cleanup EXIT
