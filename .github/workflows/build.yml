@@ -10,7 +10,7 @@ on:
       enable_pgo:
         description: 'Enable 2-stage PGO build'
         type: boolean
-        default: true
+        default: false
       pgo_workload:
         description: 'PGO workload type (sqlite=fast, kernel=accurate)'
         default: 'sqlite'
@@ -29,7 +29,7 @@ on:
 
 env:
   LLVM_BRANCH: ${{ github.event.inputs.llvm_branch || 'llvmorg-22.1.0' }}
-  ENABLE_PGO: ${{ github.event.inputs.enable_pgo || 'true' }}
+  ENABLE_PGO: ${{ github.event.inputs.enable_pgo || 'false' }}
   PGO_WORKLOAD: ${{ github.event.inputs.pgo_workload || 'sqlite' }}
   INSTALL_DIR: ${{ github.workspace }}/toolchain
   BUILD_DIR: ${{ github.workspace }}/build
