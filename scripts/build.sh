@@ -167,19 +167,46 @@ cmake_configure() {
   local lld_path=""
   if command -v ld.lld &>/dev/null; then
     lld_path=$(command -v ld.lld)
-    cmake_extra_args+=("-DLLVM_USE_LINKER=lld" "-DCMAKE_LINKER=$lld_path")
-  elif command -v lld &>/dev/null; then
-    lld_path=$(command -v lld)
+  else
+    # Handle versioned names (e.g. ld.lld-18 on Ubuntu 24.04)
+    for v in 18 17 16 15 14; do
+      if command -v "ld.lld-$v" &>/dev/null; then
+        lld_path=$(command -v "ld.lld-$v")
+        break
+      fi
+    done
+  fi
+  if [[ -n "$lld_path" ]]; then
     cmake_extra_args+=("-DLLVM_USE_LINKER=lld" "-DCMAKE_LINKER=$lld_path")
   fi
 
   # Use llvm-ar / llvm-ranlib to avoid triggering the system's gold plugin
+  local llvm_ar=""
   if command -v llvm-ar &>/dev/null; then
-    cmake_extra_args+=("-DCMAKE_AR=$(command -v llvm-ar)")
+    llvm_ar=$(command -v llvm-ar)
+  else
+    # Handle versioned names (e.g. llvm-ar-18 on Ubuntu 24.04)
+    for v in 18 17 16 15 14; do
+      if command -v "llvm-ar-$v" &>/dev/null; then
+        llvm_ar=$(command -v "llvm-ar-$v")
+        break
+      fi
+    done
   fi
+  [[ -n "$llvm_ar" ]] && cmake_extra_args+=("-DCMAKE_AR=$llvm_ar")
+
+  local llvm_ranlib=""
   if command -v llvm-ranlib &>/dev/null; then
-    cmake_extra_args+=("-DCMAKE_RANLIB=$(command -v llvm-ranlib)")
+    llvm_ranlib=$(command -v llvm-ranlib)
+  else
+    for v in 18 17 16 15 14; do
+      if command -v "llvm-ranlib-$v" &>/dev/null; then
+        llvm_ranlib=$(command -v "llvm-ranlib-$v")
+        break
+      fi
+    done
   fi
+  [[ -n "$llvm_ranlib" ]] && cmake_extra_args+=("-DCMAKE_RANLIB=$llvm_ranlib")
 
   cmake -S "$src/llvm" -B "$build" -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
@@ -578,7 +605,7 @@ simple_build() {
   fi
 
   local cmake_args=()
-  if [[ -n "$cc" && -f "$cc" ]]; then
+  if [[ -n "$cc" ]]; then
     cmake_args+=(-DCMAKE_C_COMPILER="$cc" -DCMAKE_CXX_COMPILER="$cxx" -DLLVM_ENABLE_LTO="$lto_mode")
   else
     warn "No Clang host compiler found — building without ThinLTO"
@@ -587,7 +614,21 @@ simple_build() {
 
   cmake_configure "$LLVM_DIR" "$build" "$INSTALL_DIR" "$LLVM_PROJECTS" "" "${cmake_args[@]}"
   cmake --build "$build" -j"$JOBS" 2>&1 | tee -a "$BUILD_DIR/build.log"
+
+  # Free disk BEFORE install: remove object files + ThinLTO cache
+  log "Build done. Cleaning object files before install ..."
+  find "$build" -name "*.o" -delete 2>/dev/null || true
+  find "$build" -name "*.obj" -delete 2>/dev/null || true
+  rm -rf "$build/lib" 2>/dev/null || true
+  rm -rf "$BUILD_DIR/lto-cache" 2>/dev/null || true
+  df -h / 2>/dev/null | tail -1 || true
+
   cmake --install "$build" 2>&1 | tee -a "$BUILD_DIR/build.log"
+
+  # Wipe entire build dir after install
+  log "Removing build directory ..."
+  rm -rf "$build" 2>/dev/null || true
+  df -h / 2>/dev/null | tail -1 || true
 
   export PATH="$old_path"
 }
@@ -607,6 +648,17 @@ main() {
   export GITHUB_RUN_NUMBER="${GITHUB_RUN_NUMBER:-}"
   export GITHUB_RUN_ID="${GITHUB_RUN_ID:-}"
   export GITHUB_REPOSITORY="${GITHUB_REPOSITORY:-}"
+
+  # ── Pre-flight disk space check ─────────────────────────────────────────────
+  local avail_kb
+  avail_kb=$(df --output=avail / 2>/dev/null | tail -1 | tr -d ' ')
+  if [[ -n "$avail_kb" ]]; then
+    local avail_gb=$((avail_kb / 1048576))
+    log "Available disk space: ${avail_gb}GB"
+    if [[ "$avail_kb" -lt 10000000 ]]; then
+      die "Not enough disk space (${avail_gb}GB available, need ~10GB minimum). Aborting."
+    fi
+  fi
 
   log "Starting CyreneClang build (PGO=$ENABLE_PGO) ..."
   mkdir -p "$BUILD_DIR"

@@ -165,9 +165,9 @@ jobs:
           sudo apt-get install -y \
             cmake ninja-build python3 git curl unzip \
             clang lld ccache \
-            libxml2-dev libedit-dev libncurses5-dev \
+            libxml2-dev libedit-dev libncurses-dev \
             libc++-dev libc++abi-dev \
-            libc6-dev libgcc-11-dev \
+            libc6-dev \
             zstd build-essential ca-certificates \
             binutils-aarch64-linux-gnu
 
