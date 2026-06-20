@@ -483,12 +483,11 @@ stage2_build() {
 
   cmake --build "$s2_build" -j"$JOBS" 2>&1 | tee -a "$BUILD_DIR/build.log"
 
-  # Free disk BEFORE install: remove object files
+  # Free disk BEFORE install: remove object files + ThinLTO cache
+  # Do NOT delete $s2_build/lib — cmake --install needs cmake_install.cmake scripts there
   log "Stage 2 build done. Cleaning object files before install ..."
   find "$s2_build" -name "*.o" -delete 2>/dev/null || true
   find "$s2_build" -name "*.obj" -delete 2>/dev/null || true
-  rm -rf "$s2_build/lib" 2>/dev/null || true
-  # Remove ThinLTO cache after build (no longer needed)
   rm -rf "$BUILD_DIR/lto-cache" 2>/dev/null || true
   df -h / 2>/dev/null | tail -1 || true
 
@@ -616,10 +615,10 @@ simple_build() {
   cmake --build "$build" -j"$JOBS" 2>&1 | tee -a "$BUILD_DIR/build.log"
 
   # Free disk BEFORE install: remove object files + ThinLTO cache
+  # Do NOT delete $build/lib — cmake --install needs cmake_install.cmake scripts there
   log "Build done. Cleaning object files before install ..."
   find "$build" -name "*.o" -delete 2>/dev/null || true
   find "$build" -name "*.obj" -delete 2>/dev/null || true
-  rm -rf "$build/lib" 2>/dev/null || true
   rm -rf "$BUILD_DIR/lto-cache" 2>/dev/null || true
   df -h / 2>/dev/null | tail -1 || true
 
