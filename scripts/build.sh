@@ -39,6 +39,7 @@ fi
 LLVM_TARGETS="AArch64"
 LLVM_PROJECTS="clang;lld;compiler-rt;polly"
 CLANG_VENDOR="${CLANG_VENDOR:-CyreneClang}"
+DEFAULT_TARGET_TRIPLE="${DEFAULT_TARGET_TRIPLE:-aarch64-linux-android}"
 
 # ─── Host Compiler Detection ──────────────────────────────────────────────
 detect_host_compiler() {
@@ -89,6 +90,41 @@ detect_host_compiler() {
 log() { echo -e "\n\033[1;36m[CyreneClang]\033[0m $*"; }
 warn() { echo -e "\033[1;33m[WARN]\033[0m $*" >&2; }
 die() { echo -e "\033[1;31m[ERROR]\033[0m $*" >&2; exit 1; }
+
+# ─── Bundle libc++ shared libraries into toolchain ────────────────────────────
+# CMake builds libc++ but may not install .so files to the toolchain.
+# This ensures libc++.so.1 and libc++abi.so.1 are present for consumers.
+bundle_libcxx() {
+  local build_dir="$1"
+  local lib_dir="$INSTALL_DIR/lib"
+
+  mkdir -p "$lib_dir"
+
+  local found=0
+  for name in libc++.so.1 libc++abi.so.1 libc++.so libc++abi.so; do
+    # Skip symlinks, only copy real files
+    local src
+    src=$(find "$build_dir/lib" -name "$name" -not -type l 2>/dev/null | head -1)
+    if [[ -n "$src" && -f "$src" ]]; then
+      cp -f "$src" "$lib_dir/"
+      # Create major-version symlinks if missing
+      if [[ "$name" == "libc++.so.1" && ! -e "$lib_dir/libc++.so" ]]; then
+        ln -sf libc++.so.1 "$lib_dir/libc++.so"
+      fi
+      if [[ "$name" == "libc++abi.so.1" && ! -e "$lib_dir/libc++abi.so" ]]; then
+        ln -sf libc++abi.so.1 "$lib_dir/libc++abi.so"
+      fi
+      found=$((found + 1))
+    fi
+  done
+
+  # Also check install dir's own lib (cmake may have put them there)
+  if [[ -f "$lib_dir/libc++.so.1" ]]; then
+    log "libc++ bundled successfully: $lib_dir/libc++.so.1"
+  else
+    warn "libc++.so.1 not found after install — consumers may need system libc++"
+  fi
+}
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
@@ -253,6 +289,7 @@ cmake_configure() {
     -DCLANG_ENABLE_ARCMT=OFF \
     -DCLANG_ENABLE_STATIC_ANALYZER=OFF \
     -DLLVM_ENABLE_WARNINGS=OFF \
+    -DDEFAULT_TARGET_TRIPLE="$DEFAULT_TARGET_TRIPLE" \
     "${cmake_extra_args[@]}" \
     "$@"
 }
@@ -523,6 +560,9 @@ stage2_build() {
 
   cmake --install "$s2_build" 2>&1 | tee -a "$BUILD_DIR/build.log"
 
+  # Ensure libc++ shared libraries are bundled in the toolchain
+  bundle_libcxx "$s2_build"
+
   # Wipe entire stage2 build dir after install (saves ~15GB before BOLT)
   log "Removing Stage 2 build directory ..."
   rm -rf "$s2_build" 2>/dev/null || true
@@ -658,6 +698,9 @@ simple_build() {
   df -h / 2>/dev/null | tail -1 || true
 
   cmake --install "$build" 2>&1 | tee -a "$BUILD_DIR/build.log"
+
+  # Ensure libc++ shared libraries are bundled in the toolchain
+  bundle_libcxx "$build"
 
   # Wipe entire build dir after install
   log "Removing build directory ..."
