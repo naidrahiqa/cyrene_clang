@@ -27,6 +27,9 @@ on:
       - 'patches/**'
       - 'scripts/**'
 
+permissions:
+  contents: write
+
 env:
   LLVM_BRANCH: ${{ github.event.inputs.llvm_branch || 'llvmorg-22.1.0' }}
   ENABLE_PGO: ${{ github.event.inputs.enable_pgo || 'false' }}
@@ -35,7 +38,7 @@ env:
   BUILD_DIR: ${{ github.workspace }}/build
   LLVM_DIR: ${{ github.workspace }}/llvm-project
   OUTPUT_DIR: ${{ github.workspace }}/output
-  RELEASE_TAG: cyrene-${{ github.run_number }}
+  RELEASE_TAG: cyrene-placeholder
   TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
   TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
 
@@ -48,6 +51,15 @@ jobs:
       # ── Prep ────────────────────────────────────────────────────────────────
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Set release tag from LLVM branch
+        run: |
+          BRANCH="${{ env.LLVM_BRANCH }}"
+          # llvmorg-22.1.0 → 22.1.0, llvmorg-22.1.0-rc1 → 22.1.0-rc1
+          VERSION=$(echo "$BRANCH" | sed 's/^llvmorg-//')
+          echo "RELEASE_TAG=${VERSION}" >> "$GITHUB_ENV"
+          echo "CYRENE_VERSION=${VERSION}" >> "$GITHUB_ENV"
+          echo "Release tag: cyrene-${VERSION}"
 
       - name: Count patches
         run: echo "PATCH_COUNT=$(ls -1 patches/*.patch 2>/dev/null | wc -l)" >> "$GITHUB_ENV"
@@ -232,7 +244,7 @@ jobs:
       - name: Upload toolchain artifact
         uses: actions/upload-artifact@v4
         with:
-          name: cyrene-clang-${{ github.run_number }}
+          name: cyrene-clang-${{ env.CYRENE_VERSION }}
           path: |
             ${{ env.OUTPUT_DIR }}/cyrene-clang-*.tar.zst
             ${{ env.OUTPUT_DIR }}/clang-version.txt
@@ -245,29 +257,36 @@ jobs:
 
       - name: Publish GitHub Release
         if: ${{ github.event.inputs.release == 'true' || github.event_name == 'schedule' || github.event_name == 'push' }}
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ env.RELEASE_TAG }}
-          name: "CyreneClang ${{ env.RELEASE_TAG }}"
-          body: |
-            ## CyreneClang — Automated Build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TARBALL="${{ steps.package.outputs.TARBALL }}"
+          RELEASE_BODY="## CyreneClang — Automated Build
 
-            **LLVM Branch**: `${{ env.LLVM_BRANCH }}`
-            **PGO**: ${{ env.ENABLE_PGO }}
-            **LTO**: ThinLTO
-            **Targets**: AArch64, ARM, X86
+          **LLVM Branch**: \`${{ env.LLVM_BRANCH }}\`
+          **PGO**: ${{ env.ENABLE_PGO }}
+          **LTO**: ThinLTO
+          **Targets**: AArch64, ARM, X86
 
-            ### Integration
-            ```bash
-            wget $(grep DOWNLOAD_URL output/clang-version.txt | cut -d= -f2)
-            tar -I zstd -xf cyrene-clang-*.tar.zst -C $HOME/toolchains/
-            export PATH="$HOME/toolchains/cyrene/bin:$PATH"
-            make CC=clang LD=ld.lld AR=llvm-ar ...
-            ```
-          files: |
-            ${{ steps.package.outputs.TARBALL }}
-            ${{ env.OUTPUT_DIR }}/clang-version.txt
-          make_latest: true
+          ### Integration
+          \`\`\`bash
+          wget \$(grep DOWNLOAD_URL output/clang-version.txt | cut -d= -f2)
+          tar -I zstd -xf cyrene-clang-*.tar.zst -C \$HOME/toolchains/
+          export PATH=\"\$HOME/toolchains/cyrene/bin:\$PATH\"
+          make CC=clang LD=ld.lld AR=llvm-ar ...
+          \`\`\`"
+
+          # Delete existing release if it exists (rebuild scenario)
+          gh release delete "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --yes 2>/dev/null || true
+          git push --delete origin "$RELEASE_TAG" 2>/dev/null || true
+
+          gh release create "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "CyreneClang $RELEASE_TAG" \
+            --notes "$RELEASE_BODY" \
+            --latest \
+            "$TARBALL" \
+            "${{ env.OUTPUT_DIR }}/clang-version.txt"
 
       # ── Notifications ────────────────────────────────────────────────────────
       # Note: failure notification is handled by build.sh cleanup trap
