@@ -8,10 +8,33 @@ LLVM_BRANCH="${LLVM_BRANCH:-llvmorg-22.1.0}"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/toolchains/cyrene}"
 BUILD_DIR="${BUILD_DIR:-$(pwd)/build}"
 LLVM_DIR="${LLVM_DIR:-$(pwd)/llvm-project}"
-JOBS="${JOBS:-$(nproc)}"
 ENABLE_PGO="${ENABLE_PGO:-true}"
 ENABLE_BOLT="${ENABLE_BOLT:-true}"
 PGO_WORKLOAD="${PGO_WORKLOAD:-sqlite}"
+LTO_MODE="${LTO_MODE:-Thin}"
+ZSTD_LEVEL="${ZSTD_LEVEL:-19}"
+
+# Memory-aware job scaling
+if [[ -z "${JOBS:-}" ]]; then
+  if command -v free &>/dev/null; then
+    TOTAL_RAM_GB=$(free -g | awk '/^Mem:/{print $2}')
+  elif [[ -f /proc/meminfo ]]; then
+    TOTAL_RAM_GB=$(awk '/MemTotal/{printf "%.0f", $2/1048576}' /proc/meminfo)
+  else
+    TOTAL_RAM_GB=8
+  fi
+
+  if [[ "$TOTAL_RAM_GB" -lt 4 ]]; then
+    JOBS=$((TOTAL_RAM_GB * 2))
+  elif [[ "$TOTAL_RAM_GB" -lt 8 ]]; then
+    JOBS=$((TOTAL_RAM_GB * 2))
+  elif [[ "$TOTAL_RAM_GB" -lt 16 ]]; then
+    JOBS=$(nproc 2>/dev/null || echo 4)
+  else
+    JOBS=$(nproc 2>/dev/null || echo 8)
+  fi
+  [[ "$JOBS" -lt 1 ]] && JOBS=1
+fi
 
 LLVM_TARGETS="AArch64"
 LLVM_PROJECTS="clang;lld;compiler-rt;polly"
@@ -149,9 +172,10 @@ cmake_configure() {
   # Disable gold plugin build (not needed; we use LLD for ThinLTO)
   cmake_extra_args+=("-DLLVM_BINUTILS_INCDIR=")
 
-  # Enable ccache if available
+  # Enable ccache if available (aggressive mode for faster rebuilds)
   if command -v ccache &>/dev/null; then
     cmake_extra_args+=("-DLLVM_CCACHE_BUILD=ON")
+    cmake_extra_args+=("-DLLVM_CCACHE_PARAMS=sloppiness=file_stat_matches|compression=true|compression_level=9")
   fi
 
   # Limit parallel link jobs to 1 to avoid OOM / disk explosion during ThinLTO linking
@@ -461,17 +485,23 @@ cleanup_stage1_artifacts() {
 
 # ─── Stage 2: Optimized Final Build ───────────────────────────────────────────
 stage2_build() {
-  log "Stage 2: Building optimized CyreneClang ..."
+  log "Stage 2: Building optimized CyreneClang (LTO=$LTO_MODE) ..."
   local s2_build="$BUILD_DIR/stage2"
 
   # Prepend Stage 1 bin to PATH so that CMake and Clang find lld, llvm-profdata, etc.
   local old_path="$PATH"
   export PATH="$STAGE1_INSTALL/bin:$PATH"
 
+  # Validate LTO mode
+  case "$LTO_MODE" in
+    Thin|Full|Off) ;;
+    *) warn "Invalid LTO_MODE='$LTO_MODE', defaulting to Thin"; LTO_MODE="Thin" ;;
+  esac
+
   cmake_configure "$LLVM_DIR" "$s2_build" "$INSTALL_DIR" "$LLVM_PROJECTS" "" \
     -DCMAKE_C_COMPILER="$STAGE1_CC" \
     -DCMAKE_CXX_COMPILER="$STAGE1_CXX" \
-    -DLLVM_ENABLE_LTO=Thin \
+    -DLLVM_ENABLE_LTO="$LTO_MODE" \
     -DCOMPILER_RT_ENABLE_LTO=OFF \
     -DLLVM_PROFDATA_FILE="$PGO_PROF" \
     -DLLVM_ENABLE_PLUGINS=ON \
@@ -587,11 +617,16 @@ apply_bolt() {
 
 # ─── Simple Build (no PGO) ────────────────────────────────────────────────────
 simple_build() {
-  log "Building CyreneClang (no PGO) ..."
+  log "Building CyreneClang (no PGO, LTO=$LTO_MODE) ..."
   local build="$BUILD_DIR/simple"
   local cc="" cxx=""
-  local lto_mode="Thin"
   local old_path="$PATH"
+
+  # Validate LTO mode
+  case "$LTO_MODE" in
+    Thin|Full|Off) ;;
+    *) warn "Invalid LTO_MODE='$LTO_MODE', defaulting to Thin"; LTO_MODE="Thin" ;;
+  esac
 
   # Use Stage 1 Clang if available, else host Clang, else no LTO
   if [[ -n "${STAGE1_CC:-}" && -x "${STAGE1_CC:-}" ]]; then
@@ -600,14 +635,14 @@ simple_build() {
   elif [[ "$HOST_HAS_CLANG" == "true" ]]; then
     cc="$HOST_CC"; cxx="$HOST_CXX"
   else
-    lto_mode="Off"
+    LTO_MODE="Off"
   fi
 
   local cmake_args=()
   if [[ -n "$cc" ]]; then
-    cmake_args+=(-DCMAKE_C_COMPILER="$cc" -DCMAKE_CXX_COMPILER="$cxx" -DLLVM_ENABLE_LTO="$lto_mode")
+    cmake_args+=(-DCMAKE_C_COMPILER="$cc" -DCMAKE_CXX_COMPILER="$cxx" -DLLVM_ENABLE_LTO="$LTO_MODE")
   else
-    warn "No Clang host compiler found — building without ThinLTO"
+    warn "No Clang host compiler found — building without LTO"
     cmake_args+=(-DLLVM_ENABLE_LTO=Off)
   fi
 
@@ -636,14 +671,22 @@ simple_build() {
 main() {
   detect_host_compiler
   BUILD_DATE=$(date -u +%Y-%m-%d)
-  LTO_MODE="Thin"
   PATCH_COUNT=0
 
   if ls "$REPO_DIR/patches/"*.patch &>/dev/null 2>&1; then
     PATCH_COUNT=$(ls -1 "$REPO_DIR/patches/"*.patch 2>/dev/null | wc -l)
   fi
 
-  export LLVM_BRANCH BUILD_DATE LTO_MODE PATCH_COUNT
+  # Build timing
+  declare -A STAGE_TIMES
+  stage_timer_start() { STAGE_TIMES["$1"]=$(date +%s); }
+  stage_timer_end() {
+    local key="$1" start="${STAGE_TIMES[$1]:-0}" end=$(date +%s)
+    local elapsed=$((end - start))
+    STAGE_TIMES["$1"]=$elapsed
+  }
+
+  export LLVM_BRANCH BUILD_DATE LTO_MODE PATCH_COUNT ZSTD_LEVEL
   export GITHUB_RUN_NUMBER="${GITHUB_RUN_NUMBER:-}"
   export GITHUB_RUN_ID="${GITHUB_RUN_ID:-}"
   export GITHUB_REPOSITORY="${GITHUB_REPOSITORY:-}"
@@ -659,13 +702,15 @@ main() {
     fi
   fi
 
-  log "Starting CyreneClang build (PGO=$ENABLE_PGO) ..."
+  log "Starting CyreneClang build (PGO=$ENABLE_PGO, LTO=$LTO_MODE, JOBS=$JOBS) ..."
   mkdir -p "$BUILD_DIR"
 
   # Clone LLVM first — set commit AFTER clone so notification has correct info
   BUILD_STAGE="Cloning LLVM"
   export BUILD_STAGE
+  stage_timer_start "clone"
   clone_llvm
+  stage_timer_end "clone"
 
   # Now we can get the actual commit
   LLVM_COMMIT=$(git -C "$LLVM_DIR" rev-parse --short HEAD 2>/dev/null || echo "unknown")
@@ -673,7 +718,9 @@ main() {
 
   BUILD_STAGE="Applying patches"
   export BUILD_STAGE
+  stage_timer_start "patches"
   apply_patches
+  stage_timer_end "patches"
 
   # Refresh commit after patching
   LLVM_COMMIT=$(git -C "$LLVM_DIR" rev-parse --short HEAD 2>/dev/null || echo "unknown")
@@ -685,13 +732,17 @@ main() {
 
     BUILD_STAGE="Stage 1: Instrumented build"
     export BUILD_STAGE
+    stage_timer_start "stage1"
     stage1_build
+    stage_timer_end "stage1"
 
     log "Available disk after Stage 1: $(df -h / | tail -1 | awk '{print $4}')"
 
     BUILD_STAGE="PGO profile collection"
     export BUILD_STAGE
+    stage_timer_start "pgo_collect"
     if collect_profiles; then
+      stage_timer_end "pgo_collect"
       cleanup_stage1_artifacts
 
       log "Available disk before Stage 2: $(df -h / | tail -1 | awk '{print $4}')"
@@ -703,25 +754,34 @@ main() {
       fi
       BUILD_STAGE="Stage 2: Optimized build"
       export BUILD_STAGE
+      stage_timer_start "stage2"
       stage2_build
+      stage_timer_end "stage2"
 
       BUILD_STAGE="BOLT optimization"
       export BUILD_STAGE
+      stage_timer_start "bolt"
       apply_bolt
+      stage_timer_end "bolt"
       BUILD_SUCCESS=true
     else
+      stage_timer_end "pgo_collect"
       warn "PGO profile collection failed. Falling back to non-PGO build."
       ENABLE_PGO="false"
       export ENABLE_PGO
       BUILD_STAGE="Simple build (no PGO fallback)"
       export BUILD_STAGE
+      stage_timer_start "simple"
       simple_build
+      stage_timer_end "simple"
       BUILD_SUCCESS=true
     fi
   else
     BUILD_STAGE="Simple build"
     export BUILD_STAGE
+    stage_timer_start "simple"
     simple_build
+    stage_timer_end "simple"
     BUILD_SUCCESS=true
   fi
 
@@ -732,6 +792,36 @@ main() {
     BUILD_DURATION=$(build_duration)
     export CLANG_VERSION BUILD_DURATION
     export CHANGELOG_FILE=$(gen_changelog)
+
+    # Generate build metadata
+    local metadata="$BUILD_DIR/build_metadata.json"
+    {
+      echo "{"
+      echo "  \"llvm_branch\": \"$LLVM_BRANCH\","
+      echo "  \"llvm_commit\": \"$LLVM_COMMIT\","
+      echo "  \"clang_version\": \"$CLANG_VERSION\","
+      echo "  \"build_date\": \"$BUILD_DATE\","
+      echo "  \"pgo\": $ENABLE_PGO,"
+      echo "  \"bolt\": $ENABLE_BOLT,"
+      echo "  \"lto\": \"$LTO_MODE\","
+      echo "  \"jobs\": $JOBS,"
+      echo "  \"zstd_level\": $ZSTD_LEVEL,"
+      echo "  \"patches\": $PATCH_COUNT,"
+      echo "  \"duration\": \"$BUILD_DURATION\","
+      echo "  \"stages\": {"
+      local first=true
+      for key in clone patches stage1 pgo_collect stage2 bolt simple; do
+        if [[ -n "${STAGE_TIMES[$key]:-}" ]]; then
+          [[ "$first" == "true" ]] || echo ","
+          printf '    "%s": %d' "$key" "${STAGE_TIMES[$key]}"
+          first=false
+        fi
+      done
+      echo ""
+      echo "  }"
+      echo "}"
+    } > "$metadata"
+    log "Build metadata: $metadata"
 
     # Final cleanup: remove LLVM source tree to free disk space for packaging
     log "Cleaning up LLVM source tree ..."

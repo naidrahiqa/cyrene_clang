@@ -12,8 +12,12 @@ A custom LLVM/Clang toolchain built for Android kernel compilation — balanced 
 | **ThinLTO** | Applied to the toolchain itself for faster, leaner binaries |
 | **BOLT** | Binary Optimization and Layout Tool for 5-15% additional speedup |
 | **Polly** | Loop vectorization optimizer, usable via `-mllvm -polly` |
+| **Memory-aware jobs** | Auto-detects RAM and scales parallel jobs |
+| **LTO modes** | Thin (default), Full, or Off — configurable via `LTO_MODE` |
+| **Ccache aggressive** | Compression + sloppiness for faster rebuilds |
+| **Build profiling** | Per-stage timing in `build_metadata.json` |
 | **Targets** | AArch64, ARM (32-bit), X86 (host tools) |
-| **Kernel support** | 4.x through 6.x (GKI + legacy trees) |
+| **Kernel support** | 4.14 through 6.x (GKI + legacy trees) |
 | **Auto-sync** | Weekly rebuild from LLVM `main` |
 | **Distribution** | GitHub Releases + `clang-version.txt` + `clang_notes.txt` manifests |
 | **Telegram notify** | Build status pushed to Telegram channel |
@@ -132,9 +136,11 @@ Environment variables:
 | `ENABLE_PGO` | `true` | Enable 2-stage PGO build |
 | `ENABLE_BOLT` | `true` | Enable BOLT post-build optimization |
 | `PGO_WORKLOAD` | `sqlite` | PGO workload: `sqlite` (fast) or `kernel` (accurate) |
+| `LTO_MODE` | `Thin` | LTO mode: `Thin`, `Full`, or `Off` |
+| `ZSTD_LEVEL` | `19` | Zstd compression level (1-22) |
+| `JOBS` | auto | Parallel build jobs (auto-detected from RAM) |
 | `CLANG_VENDOR` | `CyreneClang` | Vendor string in clang version output |
 | `INSTALL_DIR` | `~/toolchains/cyrene` | Where to install the toolchain |
-| `JOBS` | `nproc` | Parallel build jobs |
 
 ## Adding Custom Patches
 

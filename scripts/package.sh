@@ -10,6 +10,8 @@ REPO="${GITHUB_REPOSITORY:-owner/cyrene-clang}"
 TAG="${RELEASE_TAG:-$(date +%Y%m%d)}"
 ENABLE_PGO="${ENABLE_PGO:-true}"
 ENABLE_BOLT="${ENABLE_BOLT:-true}"
+LTO_MODE="${LTO_MODE:-Thin}"
+ZSTD_LEVEL="${ZSTD_LEVEL:-19}"
 
 log() { echo -e "\033[1;35m[Package]\033[0m $*"; }
 die() { echo -e "\033[1;31m[ERROR]\033[0m $*" >&2; exit 1; }
@@ -27,7 +29,6 @@ CLANG_VERSION=$("$CLANG_BIN" --version | head -1 | grep -oP '\d+\.\d+\.\d+\S*' |
 LLVM_COMMIT="${LLVM_COMMIT:-$(git -C "$LLVM_DIR" rev-parse --short HEAD 2>/dev/null || echo "unknown")}"
 LLVM_COMMIT_FULL="${LLVM_COMMIT_FULL:-$(git -C "$LLVM_DIR" rev-parse HEAD 2>/dev/null || echo "unknown")}"
 BUILD_DATE=$(date -u +%Y-%m-%d)
-LTO_MODE="Thin"
 DOWNLOAD_URL="https://github.com/$REPO/releases/download/$TAG/cyrene-clang-$TAG.tar.zst"
 
 # ─── Fix ld symlink (common issue with cross-env) ─────────────────────────────
@@ -38,9 +39,9 @@ if [[ -f "$INSTALL_DIR/bin/ld.lld" && ! -e "$INSTALL_DIR/bin/ld" ]]; then
 fi
 
 # ─── Compress toolchain ───────────────────────────────────────────────────────
-log "Compressing toolchain → $(basename "$TARBALL") ..."
+log "Compressing toolchain (zstd level=$ZSTD_LEVEL) → $(basename "$TARBALL") ..."
 tar \
-  --use-compress-program="zstd -19 -T0" \
+  --use-compress-program="zstd -$ZSTD_LEVEL -T0" \
   -cf "$TARBALL" \
   -C "$(dirname "$INSTALL_DIR")" \
   "$(basename "$INSTALL_DIR")"
