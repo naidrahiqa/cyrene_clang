@@ -1,11 +1,13 @@
 # CyreneClang Toolchain — Quick Reference
 
+**Current**: Clang 22.1.0 | Build #54 | `llvmorg-22.1.0` | 672M compressed
+
 ## Struktur
 
 ```
 cyrene-clang/
 ├── .github/workflows/
-│   ├── build.yml              # Main build pipeline
+│   ├── build.yml              # Main build pipeline (build + package + release)
 │   └── sync-patches.yml       # Auto-sync LLVM patches
 ├── scripts/
 │   ├── build.sh               # Core 2-stage PGO+ThinLTO build
@@ -29,9 +31,20 @@ cyrene-clang/
 |------|---------|-----------|
 | `LLVM_BRANCH` | `llvmorg-22.1.0` | LLVM branch/tag |
 | `ENABLE_PGO` | `true` | 2-stage PGO build |
+| `ENABLE_BOLT` | `true` | BOLT post-build optimization |
 | `PGO_WORKLOAD` | `sqlite` | PGO workload (`sqlite`/`kernel`) |
 | `LLVM_TARGETS` | `AArch64;ARM;X86` | Target architectures |
 | `JOBS` | `$(nproc)` | Parallel jobs |
+
+## Android 16 Kernel Compatibility
+
+Android 16 uses kernel **6.12** (GKI 2.0). Key requirements:
+- **Clang >= 18** recommended for kernel 6.x features
+- **ThinLTO** for kernel build: `KCFLAGS="-flto=thin"`
+- **CFI** (Control Flow Integrity) support for security
+- **16 KB page size** alignment for memory optimization
+
+CyreneClang 22.1.0 fully supports all Android 16 kernel build requirements.
 
 ## Patch Workflow
 

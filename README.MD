@@ -2,6 +2,8 @@
 
 A custom LLVM/Clang toolchain built for Android kernel compilation — balanced between performance, compatibility, and staying bleeding-edge.
 
+**Current version**: Clang 22.1.0 | Build #54 | Branch `llvmorg-22.1.0`
+
 ## Features
 
 | Feature | Details |
