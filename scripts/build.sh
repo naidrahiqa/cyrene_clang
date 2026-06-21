@@ -37,7 +37,8 @@ if [[ -z "${JOBS:-}" ]]; then
 fi
 
 LLVM_TARGETS="AArch64"
-LLVM_PROJECTS="clang;lld;compiler-rt;polly;libcxx;libcxxabi"
+LLVM_PROJECTS="clang;lld;compiler-rt;polly"
+LLVM_RUNTIMES="libcxx;libcxxabi"
 CLANG_VENDOR="${CLANG_VENDOR:-CyreneClang}"
 DEFAULT_TARGET_TRIPLE="${DEFAULT_TARGET_TRIPLE:-aarch64-linux-android}"
 
@@ -273,6 +274,7 @@ cmake_configure() {
     -DCMAKE_INSTALL_PREFIX="$install" \
     -DLLVM_TARGETS_TO_BUILD="$targets" \
     -DLLVM_ENABLE_PROJECTS="$projects" \
+    -DLLVM_ENABLE_RUNTIMES="$LLVM_RUNTIMES" \
     -DLLVM_INCLUDE_TESTS=OFF \
     -DLLVM_INCLUDE_EXAMPLES=OFF \
     -DLLVM_INCLUDE_BENCHMARKS=OFF \
