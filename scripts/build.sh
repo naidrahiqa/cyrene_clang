@@ -316,7 +316,11 @@ stage1_build() {
     -DCOMPILER_RT_BUILD_LIBFUZZER=OFF \
     -DCOMPILER_RT_BUILD_CRT=OFF
 
+  # Ensure just-built shared libraries are findable by child processes (runtimes cmake).
+  local old_ld_path="${LD_LIBRARY_PATH:-}"
+  export LD_LIBRARY_PATH="$s1_build/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
   cmake --build "$s1_build" -j"$JOBS" 2>&1 | tee -a "$BUILD_DIR/build.log"
+  export LD_LIBRARY_PATH="$old_ld_path"
   cmake --install "$s1_build" 2>&1 | tee -a "$BUILD_DIR/build.log"
 
   export STAGE1_CC="$s1_install/bin/clang"
@@ -550,7 +554,13 @@ stage2_build() {
     -DCOMPILER_RT_BUILD_PROFILE=OFF \
     -DCOMPILER_RT_BUILD_CRT=OFF
 
+  # Ensure just-built shared libraries (libc++, libc++abi) are findable by child
+  # processes.  The runtimes sub-build uses the just-built clang as its compiler;
+  # without this, clang/ld.lld fail to start and CMake's linker-check aborts.
+  local old_ld_path="${LD_LIBRARY_PATH:-}"
+  export LD_LIBRARY_PATH="$s2_build/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
   cmake --build "$s2_build" -j"$JOBS" 2>&1 | tee -a "$BUILD_DIR/build.log"
+  export LD_LIBRARY_PATH="$old_ld_path"
 
   # Free disk BEFORE install: remove object files + ThinLTO cache
   # Do NOT delete $s2_build/lib — cmake --install needs cmake_install.cmake scripts there
@@ -689,7 +699,14 @@ simple_build() {
   fi
 
   cmake_configure "$LLVM_DIR" "$build" "$INSTALL_DIR" "$LLVM_PROJECTS" "" "${cmake_args[@]}"
+
+  # Ensure just-built shared libraries (libc++, libc++abi) are findable by child
+  # processes.  The runtimes sub-build uses the just-built clang as its compiler;
+  # without this, clang/ld.lld fail to start and CMake's linker-check aborts.
+  local old_ld_path="${LD_LIBRARY_PATH:-}"
+  export LD_LIBRARY_PATH="$build/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
   cmake --build "$build" -j"$JOBS" 2>&1 | tee -a "$BUILD_DIR/build.log"
+  export LD_LIBRARY_PATH="$old_ld_path"
 
   # Free disk BEFORE install: remove object files + ThinLTO cache
   # Do NOT delete $build/lib — cmake --install needs cmake_install.cmake scripts there
