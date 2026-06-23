@@ -38,7 +38,7 @@ fi
 
 LLVM_TARGETS="AArch64"
 LLVM_PROJECTS="clang;lld;compiler-rt;polly"
-LLVM_RUNTIMES="libcxx;libcxxabi"
+LLVM_RUNTIMES="libunwind;libcxx;libcxxabi"
 CLANG_VENDOR="${CLANG_VENDOR:-CyreneClang}"
 DEFAULT_TARGET_TRIPLE="${DEFAULT_TARGET_TRIPLE:-aarch64-linux-android}"
 
