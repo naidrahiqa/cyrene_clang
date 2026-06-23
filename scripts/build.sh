@@ -700,6 +700,11 @@ simple_build() {
 
   cmake_configure "$LLVM_DIR" "$build" "$INSTALL_DIR" "$LLVM_PROJECTS" "" "${cmake_args[@]}"
 
+  # Prepend build bin to PATH so the just-built clang can find lld, llvm-ar, etc.
+  # Required for the runtimes sub-build which uses the just-built clang as its
+  # compiler — without this, CMake's -fuse-ld=lld check fails.
+  export PATH="$build/bin:$PATH"
+
   # Ensure just-built shared libraries (libc++, libc++abi) are findable by child
   # processes.  The runtimes sub-build uses the just-built clang as its compiler;
   # without this, clang/ld.lld fail to start and CMake's linker-check aborts.
