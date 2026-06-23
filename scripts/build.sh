@@ -38,7 +38,7 @@ fi
 
 LLVM_TARGETS="AArch64"
 LLVM_PROJECTS="clang;lld;compiler-rt;polly"
-LLVM_RUNTIMES="libunwind;libcxx;libcxxabi"
+LLVM_RUNTIMES="libcxx;libcxxabi"
 CLANG_VENDOR="${CLANG_VENDOR:-CyreneClang}"
 DEFAULT_TARGET_TRIPLE="${DEFAULT_TARGET_TRIPLE:-aarch64-linux-android}"
 
@@ -238,9 +238,9 @@ cmake_configure() {
     done
   fi
   if [[ -n "$lld_path" ]]; then
-    # Do NOT use -DLLVM_USE_LINKER=lld here — it propagates to the runtimes
-    # sub-build where the just-built Clang fails the -fuse-ld=lld compiler check.
-    # Instead, use standard CMake variables which don't get forwarded to runtimes.
+    # Do NOT use -DLLVM_USE_LINKER=lld here — it propagates to sub-builds
+    # where the just-built Clang may fail the -fuse-ld=lld compiler check.
+    # Instead, use standard CMake variables which don't get forwarded.
     cmake_extra_args+=("-DCMAKE_LINKER=$lld_path")
     cmake_extra_args+=("-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld")
     cmake_extra_args+=("-DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=lld")
@@ -704,16 +704,21 @@ simple_build() {
     cmake_args+=(-DLLVM_ENABLE_LTO=Off)
   fi
 
+  # Don't build runtimes in simple_build: the just-built Clang targets AArch64
+  # (via CLANG_DEFAULT_TARGET_TRIPLE) but the runtimes sub-build runs on the
+  # x86_64 host.  This causes all CMake compiler detection to fail, which then
+  # breaks libunwind (cmake_path undefined) and libcxxabi
+  # (LIBCXXABI_USE_LLVM_UNWINDER auto-detected ON without libunwind in list).
+  # Runtimes are only needed for userspace, not kernel builds.
+  local saved_runtimes="$LLVM_RUNTIMES"
+  LLVM_RUNTIMES=""
   cmake_configure "$LLVM_DIR" "$build" "$INSTALL_DIR" "$LLVM_PROJECTS" "" "${cmake_args[@]}"
+  LLVM_RUNTIMES="$saved_runtimes"
 
   # Prepend build bin to PATH so the just-built clang can find lld, llvm-ar, etc.
-  # Required for the runtimes sub-build which uses the just-built clang as its
-  # compiler — without this, CMake's -fuse-ld=lld check fails.
   export PATH="$build/bin:$PATH"
 
-  # Ensure just-built shared libraries (libc++, libc++abi) are findable by child
-  # processes.  The runtimes sub-build uses the just-built clang as its compiler;
-  # without this, clang/ld.lld fail to start and CMake's linker-check aborts.
+  # Ensure just-built shared libraries are findable by child processes.
   local old_ld_path="${LD_LIBRARY_PATH:-}"
   export LD_LIBRARY_PATH="$build/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
   cmake --build "$build" -j"$JOBS" 2>&1 | tee -a "$BUILD_DIR/build.log"
@@ -728,9 +733,6 @@ simple_build() {
   df -h / 2>/dev/null | tail -1 || true
 
   cmake --install "$build" 2>&1 | tee -a "$BUILD_DIR/build.log"
-
-  # Ensure libc++ shared libraries are bundled in the toolchain
-  bundle_libcxx "$build"
 
   # Wipe entire build dir after install
   log "Removing build directory ..."

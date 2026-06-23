@@ -47,6 +47,8 @@ Build is 2-stage when PGO enabled: stage1 = instrumented X86 build, profile coll
 
 - **Do NOT use `-DLLVM_USE_LINKER=lld` in cmake_configure()** — it propagates to the runtimes sub-build where the just-built Clang fails the `-fuse-ld=lld` compiler check. Use standard CMake variables instead: `CMAKE_LINKER`, `CMAKE_EXE_LINKER_FLAGS`, `CMAKE_SHARED_LINKER_FLAGS`, `CMAKE_MODULE_LINKER_FLAGS`. See commit `2cd51af` for details.
 
+- **Do NOT build runtimes (libunwind, libcxx, libcxxabi) in `simple_build()`** — the just-built Clang targets AArch64 (via `CLANG_DEFAULT_TARGET_TRIPLE`) but the runtimes sub-build runs on the x86_64 host. This causes all CMake compiler detection to fail, producing errors like `cmake_path undefined variable`, `LIBCXXABI_USE_LLVM_UNWINDER auto-detected ON`, or `Compiler doesn't support generation of unwind tables`. Fix: override `LLVM_RUNTIMES=""` before `cmake_configure` in `simple_build()` and skip `bundle_libcxx`. Runtimes are only needed for userspace, not kernel builds. See `.opencode/skills/llvm-runtimes/SKILL.MD` for details.
+
 ## Key files
 
 - `scripts/build.sh` — entire build logic lives here
