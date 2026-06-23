@@ -238,7 +238,13 @@ cmake_configure() {
     done
   fi
   if [[ -n "$lld_path" ]]; then
-    cmake_extra_args+=("-DLLVM_USE_LINKER=lld" "-DCMAKE_LINKER=$lld_path")
+    # Do NOT use -DLLVM_USE_LINKER=lld here — it propagates to the runtimes
+    # sub-build where the just-built Clang fails the -fuse-ld=lld compiler check.
+    # Instead, use standard CMake variables which don't get forwarded to runtimes.
+    cmake_extra_args+=("-DCMAKE_LINKER=$lld_path")
+    cmake_extra_args+=("-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld")
+    cmake_extra_args+=("-DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=lld")
+    cmake_extra_args+=("-DCMAKE_MODULE_LINKER_FLAGS=-fuse-ld=lld")
   fi
 
   # Use llvm-ar / llvm-ranlib to avoid triggering the system's gold plugin
