@@ -33,8 +33,10 @@ cyrene-clang/
 | `ENABLE_PGO` | `true` | 2-stage PGO build |
 | `ENABLE_BOLT` | `true` | BOLT post-build optimization |
 | `PGO_WORKLOAD` | `sqlite` | PGO workload (`sqlite`/`kernel`) |
-| `LLVM_TARGETS` | `AArch64;ARM;X86` | Target architectures |
-| `JOBS` | `$(nproc)` | Parallel jobs |
+| `LLVM_TARGETS` | `AArch64` | Target architectures |
+| `LTO_MODE` | `Thin` | LTO mode (`Thin`/`Full`/`Off`) |
+| `JOBS` | `$(nproc)` | Parallel jobs (auto from RAM) |
+| `ZSTD_LEVEL` | `19` | Zstd compression level (1-22) |
 
 ## Android 16 Kernel Compatibility
 

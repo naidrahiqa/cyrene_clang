@@ -4,6 +4,15 @@ All notable changes to CyreneClang will be documented in this file.
 
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [22.1.0] - 2026-06-23
+
+### Fixed
+
+- **Runtimes configure failure** — Replace `-DLLVM_USE_LINKER=lld` with standard CMake linker flags (`CMAKE_LINKER`, `CMAKE_*_LINKER_FLAGS`) to prevent the flag from propagating to the runtimes sub-build, which caused `Host compiler does not support '-fuse-ld=lld'` error
+- **PATH for just-built tools** — Prepend `$build/bin` to PATH before `cmake --build` in `simple_build()` so the just-built Clang can find lld, llvm-ar, etc. during runtimes configure
+
+---
+
 ## [22.1.0] - 2026-06-21
 
 ### Added
