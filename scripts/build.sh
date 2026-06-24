@@ -38,7 +38,7 @@ fi
 
 LLVM_TARGETS="AArch64"
 LLVM_PROJECTS="clang;lld;compiler-rt;polly"
-LLVM_RUNTIMES="libcxx;libcxxabi"
+LLVM_RUNTIMES=""
 CLANG_VENDOR="${CLANG_VENDOR:-CyreneClang}"
 DEFAULT_TARGET_TRIPLE="${DEFAULT_TARGET_TRIPLE:-aarch64-linux-android}"
 
@@ -547,6 +547,9 @@ stage2_build() {
     *) warn "Invalid LTO_MODE='$LTO_MODE', defaulting to Thin"; LTO_MODE="Thin" ;;
   esac
 
+  # Enable runtimes (libcxx, libcxxabi) for stage2 — the only stage that needs them.
+  local saved_runtimes="$LLVM_RUNTIMES"
+  LLVM_RUNTIMES="libcxx;libcxxabi"
   cmake_configure "$LLVM_DIR" "$s2_build" "$INSTALL_DIR" "$LLVM_PROJECTS" "" \
     -DCMAKE_C_COMPILER="$STAGE1_CC" \
     -DCMAKE_CXX_COMPILER="$STAGE1_CXX" \
@@ -559,6 +562,7 @@ stage2_build() {
     -DCOMPILER_RT_BUILD_LIBFUZZER=OFF \
     -DCOMPILER_RT_BUILD_PROFILE=OFF \
     -DCOMPILER_RT_BUILD_CRT=OFF
+  LLVM_RUNTIMES="$saved_runtimes"
 
   # Ensure just-built shared libraries (libc++, libc++abi) are findable by child
   # processes.  The runtimes sub-build uses the just-built clang as its compiler;
@@ -704,16 +708,11 @@ simple_build() {
     cmake_args+=(-DLLVM_ENABLE_LTO=Off)
   fi
 
-  # Don't build runtimes in simple_build: the just-built Clang targets AArch64
+  # Runtimes (libcxx, libcxxabi) are only built in stage2 via cmake_configure.
+  # simple_build() skips them because the just-built Clang targets AArch64
   # (via CLANG_DEFAULT_TARGET_TRIPLE) but the runtimes sub-build runs on the
-  # x86_64 host.  This causes all CMake compiler detection to fail, which then
-  # breaks libunwind (cmake_path undefined) and libcxxabi
-  # (LIBCXXABI_USE_LLVM_UNWINDER auto-detected ON without libunwind in list).
-  # Runtimes are only needed for userspace, not kernel builds.
-  local saved_runtimes="$LLVM_RUNTIMES"
-  LLVM_RUNTIMES=""
+  # x86_64 host, causing CMake compiler detection to fail.
   cmake_configure "$LLVM_DIR" "$build" "$INSTALL_DIR" "$LLVM_PROJECTS" "" "${cmake_args[@]}"
-  LLVM_RUNTIMES="$saved_runtimes"
 
   # Prepend build bin to PATH so the just-built clang can find lld, llvm-ar, etc.
   export PATH="$build/bin:$PATH"

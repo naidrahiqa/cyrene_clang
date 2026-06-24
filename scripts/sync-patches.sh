@@ -86,8 +86,7 @@ main() {
   
   # Check if we're already on the latest
   if [[ "$current_version" == "$latest_release" ]]; then
-    log "Already on latest release ($latest_release), checking for backport commits..."
-    # Still check for commits that might have been backported
+    log "Already on latest release ($latest_release), checking for backported commits..."
   fi
   
   # Ensure LLVM source is available

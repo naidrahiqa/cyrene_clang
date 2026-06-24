@@ -39,7 +39,6 @@ WARN_SUPPRESS=(
   -Wno-tautological-compare
   -Wno-missing-field-initializers
   -Wno-self-assign
-  -Wno-pointer-sign
   -Wno-incompatible-pointer-types
   -Wno-deprecated-declarations
   -Wno-constant-conversion

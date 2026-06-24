@@ -5,7 +5,6 @@ set -euo pipefail
 
 INSTALL_DIR="${INSTALL_DIR:-$HOME/toolchains/cyrene}"
 OUTPUT_DIR="${OUTPUT_DIR:-$(pwd)/output}"
-LLVM_DIR="${LLVM_DIR:-$(pwd)/llvm-project}"
 REPO="${GITHUB_REPOSITORY:-owner/cyrene-clang}"
 TAG="${RELEASE_TAG:-$(date +%Y%m%d)}"
 ENABLE_PGO="${ENABLE_PGO:-true}"
@@ -63,7 +62,7 @@ BUILD_HOST=GitHub Actions
 PGO=$ENABLE_PGO
 BOLT=$ENABLE_BOLT
 LTO=$LTO_MODE
-TARGETS=AArch64;ARM;X86
+TARGETS=AArch64
 TARBALL_SIZE=$TARBALL_SIZE
 SHA256=$SHA256
 DOWNLOAD_URL=$DOWNLOAD_URL

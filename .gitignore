@@ -10,6 +10,7 @@ output/
 *.zip
 .DS_Store
 Thumbs.db
+.vscode/
 PROMPT.MD
 .docs
 .opencode
