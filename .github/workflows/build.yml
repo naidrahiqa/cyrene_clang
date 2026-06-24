@@ -14,6 +14,10 @@ on:
       pgo_workload:
         description: 'PGO workload type (sqlite=fast, kernel=accurate)'
         default: 'sqlite'
+      enable_bolt:
+        description: 'Enable BOLT post-build optimization'
+        type: boolean
+        default: false
       release:
         description: 'Publish to GitHub Releases'
         type: boolean
@@ -37,6 +41,7 @@ concurrency:
 env:
   LLVM_BRANCH: ${{ github.event.inputs.llvm_branch || 'llvmorg-22.1.0' }}
   ENABLE_PGO: ${{ github.event.inputs.enable_pgo || 'false' }}
+  ENABLE_BOLT: ${{ github.event.inputs.enable_bolt || 'false' }}
   PGO_WORKLOAD: ${{ github.event.inputs.pgo_workload || 'sqlite' }}
   INSTALL_DIR: ${{ github.workspace }}/toolchain
   BUILD_DIR: ${{ github.workspace }}/build
@@ -50,7 +55,7 @@ jobs:
   build:
     name: Build CyreneClang
     runs-on: ubuntu-latest
-    timeout-minutes: 480
+    timeout-minutes: 180
 
     steps:
       # ── Prep ────────────────────────────────────────────────────────────────
@@ -215,6 +220,7 @@ jobs:
           JOBS: 6
           LLVM_BRANCH: ${{ env.LLVM_BRANCH }}
           ENABLE_PGO: ${{ env.ENABLE_PGO }}
+          ENABLE_BOLT: ${{ env.ENABLE_BOLT }}
           PGO_WORKLOAD: ${{ env.PGO_WORKLOAD }}
 
       - name: Show ccache stats
