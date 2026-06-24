@@ -30,6 +30,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   LLVM_BRANCH: ${{ github.event.inputs.llvm_branch || 'llvmorg-22.1.0' }}
   ENABLE_PGO: ${{ github.event.inputs.enable_pgo || 'false' }}
@@ -46,6 +50,7 @@ jobs:
   build:
     name: Build CyreneClang
     runs-on: ubuntu-latest
+    timeout-minutes: 480
 
     steps:
       # ── Prep ────────────────────────────────────────────────────────────────
@@ -207,7 +212,7 @@ jobs:
           echo "BUILD_STAGE=Running build" >> "$GITHUB_ENV"
           bash scripts/build.sh
         env:
-          JOBS: 4
+          JOBS: 6
           LLVM_BRANCH: ${{ env.LLVM_BRANCH }}
           ENABLE_PGO: ${{ env.ENABLE_PGO }}
           PGO_WORKLOAD: ${{ env.PGO_WORKLOAD }}
