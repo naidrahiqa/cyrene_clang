@@ -36,7 +36,7 @@ permissions:
 
 concurrency:
   group: build-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 env:
   LLVM_BRANCH: ${{ github.event.inputs.llvm_branch || 'llvmorg-22.1.0' }}
@@ -55,7 +55,7 @@ jobs:
   build:
     name: Build CyreneClang
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 360
 
     steps:
       # ── Prep ────────────────────────────────────────────────────────────────
