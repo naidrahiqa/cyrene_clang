@@ -1,0 +1,29 @@
+name: Lint Scripts
+
+on:
+  push:
+    paths:
+      - 'scripts/**'
+      - '*.sh'
+  pull_request:
+    paths:
+      - 'scripts/**'
+      - '*.sh'
+
+jobs:
+  shellcheck:
+    name: ShellCheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ShellCheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: Run ShellCheck
+        run: |
+          echo "=== Checking scripts ==="
+          find scripts/ -name "*.sh" -exec shellcheck --severity=warning {} +
+          echo "=== Checking root scripts ==="
+          shellcheck --severity=warning *.sh || true
+          echo "=== Done ==="

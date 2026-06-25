@@ -1,0 +1,98 @@
+# CyreneClang Makefile
+# Common tasks for development and CI
+
+SHELL := /bin/bash
+.DEFAULT_GOAL := help
+
+# Variables
+VERSION    := $(shell cat VERSION 2>/dev/null || echo "unknown")
+BUILD_DIR  := build
+INSTALL_DIR := $(HOME)/toolchains/cyrene
+LLVM_BRANCH := llvmorg-22.1.0
+
+# ─── Help ────────────────────────────────────────────────────────────────────
+.PHONY: help
+help: ## Show this help
+	@echo "CyreneClang $(VERSION)"
+	@echo ""
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
+		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
+
+# ─── Build ───────────────────────────────────────────────────────────────────
+.PHONY: build
+build: ## Build CyreneClang (PGO=true, BOLT=true)
+	bash scripts/build.sh
+
+.PHONY: build-simple
+build-simple: ## Build without PGO (faster, for testing)
+	ENABLE_PGO=false ENABLE_BOLT=false bash scripts/build.sh
+
+.PHONY: build-pgo
+build-pgo: ## Build with PGO only (no BOLT)
+	ENABLE_BOLT=false bash scripts/build.sh
+
+# ─── Quality ─────────────────────────────────────────────────────────────────
+.PHONY: lint
+lint: ## Run ShellCheck on all scripts
+	@echo "Running ShellCheck ..."
+	@find scripts/ -name "*.sh" -exec shellcheck --severity=warning {} + || true
+	@echo "Done."
+
+.PHONY: lint-fix
+lint-fix: ## Run ShellCheck with auto-fix suggestions
+	@find scripts/ -name "*.sh" -exec shellcheck --fix --severity=info {} + || true
+
+.PHONY: fmt
+fmt: ## Format shell scripts with shfmt
+	@find scripts/ -name "*.sh" -exec shfmt -w -ci -i 2 {} + || true
+
+.PHONY: check
+check: lint ## Run all checks (alias for lint)
+
+# ─── Test ────────────────────────────────────────────────────────────────────
+.PHONY: test
+test: ## Run build tests
+	bash tests/test-build.sh
+
+.PHONY: test-compat
+test-compat: ## Run compatibility check
+	bash scripts/check-compat.sh
+
+# ─── Docker ──────────────────────────────────────────────────────────────────
+.PHONY: docker-build
+docker-build: ## Build in Docker container
+	docker build -t cyrene-clang .
+
+.PHONY: docker-run
+docker-run: ## Run build inside Docker
+	docker run --rm -v $$(pwd):/workspace -w /workspace cyrene-clang make build
+
+# ─── Patches ─────────────────────────────────────────────────────────────────
+.PHONY: sync-patches
+sync-patches: ## Sync patches from LLVM stable
+	bash scripts/sync-patches.sh
+
+.PHONY: apply-patches
+apply-patches: ## Apply all patches to llvm-project
+	bash scripts/patch.sh $(BUILD_DIR)/llvm-project
+
+# ─── Clean ───────────────────────────────────────────────────────────────────
+.PHONY: clean
+clean: ## Remove build artifacts
+	rm -rf $(BUILD_DIR)
+	rm -rf output
+	@echo "Cleaned."
+
+.PHONY: distclean
+distclean: clean ## Remove everything including toolchain
+	rm -rf $(INSTALL_DIR)
+	rm -rf llvm-project
+
+# ─── Release ─────────────────────────────────────────────────────────────────
+.PHONY: package
+package: ## Package toolchain for release
+	bash scripts/package.sh
+
+.PHONY: version
+version: ## Show current version
+	@echo "$(VERSION)"

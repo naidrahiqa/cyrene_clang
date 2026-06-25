@@ -36,7 +36,7 @@ if [[ -z "${JOBS:-}" ]]; then
   [[ "$JOBS" -lt 1 ]] && JOBS=1
 fi
 
-LLVM_TARGETS="AArch64"
+LLVM_TARGETS="AArch64;ARM"
 LLVM_PROJECTS="clang;lld;compiler-rt;polly"
 LLVM_RUNTIMES=""
 CLANG_VENDOR="${CLANG_VENDOR:-CyreneClang}"
@@ -92,6 +92,19 @@ log() { echo -e "\n\033[1;36m[CyreneClang]\033[0m $*"; }
 warn() { echo -e "\033[1;33m[WARN]\033[0m $*" >&2; }
 die() { echo -e "\033[1;31m[ERROR]\033[0m $*" >&2; exit 1; }
 
+# Check available disk space (in KB). Die if below threshold.
+# Usage: check_disk_space <min_kb> <stage_name>
+check_disk_space() {
+  local min_kb="$1" stage_name="$2"
+  local avail_kb
+  avail_kb=$(df --output=avail / 2>/dev/null | tail -1 | tr -d ' ')
+  if [[ -n "$avail_kb" && "$avail_kb" -lt "$min_kb" ]]; then
+    local avail_gb=$((avail_kb / 1048576))
+    local need_gb=$((min_kb / 1048576))
+    die "Not enough disk space for $stage_name (${avail_gb}GB available, need ~${need_gb}GB). Aborting."
+  fi
+}
+
 # ─── Bundle libc++ shared libraries into toolchain ────────────────────────────
 # CMake builds libc++ but may not install .so files to the toolchain.
 # This ensures libc++.so.1 and libc++abi.so.1 are present for consumers.
@@ -131,6 +144,15 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
 NOTIFY_SCRIPT="$SCRIPT_DIR/notify.sh"
 START_EPOCH=$(date +%s)
+
+# Build timing (global scope so stage_timer_* functions can access)
+declare -A STAGE_TIMES
+stage_timer_start() { STAGE_TIMES["$1"]=$(date +%s); }
+stage_timer_end() {
+  local key="$1" start="${STAGE_TIMES[$1]:-0}" end=$(date +%s)
+  local elapsed=$((end - start))
+  STAGE_TIMES["$1"]=$elapsed
+}
 
 notify() {
   local type="$1"
@@ -179,8 +201,20 @@ clone_llvm() {
     return
   fi
   log "Cloning LLVM (branch: $LLVM_BRANCH) ..."
-  git clone https://github.com/llvm/llvm-project.git \
-    --depth=1 --branch "$LLVM_BRANCH" "$LLVM_DIR"
+  local max_attempts=3
+  for ((attempt=1; attempt<=max_attempts; attempt++)); do
+    if git clone https://github.com/llvm/llvm-project.git \
+      --depth=1 --branch "$LLVM_BRANCH" "$LLVM_DIR" 2>&1; then
+      return 0
+    fi
+    warn "Clone attempt $attempt/$max_attempts failed"
+    rm -rf "$LLVM_DIR" 2>/dev/null || true
+    if [[ $attempt -lt $max_attempts ]]; then
+      log "Retrying in 5s ..."
+      sleep 5
+    fi
+  done
+  die "Failed to clone LLVM after $max_attempts attempts"
 }
 
 # ─── Apply Custom Patches ─────────────────────────────────────────────────────
@@ -384,9 +418,23 @@ collect_kernel() {
 
   local kernel_dir="$BUILD_DIR/kernel-workload"
   log "Cloning android-mainline kernel (--depth=1) ..."
-  if ! git clone --depth=1 \
-    https://android.googlesource.com/kernel/common "$kernel_dir"; then
-    warn "Kernel clone failed"
+  local max_attempts=3
+  local cloned=false
+  for ((attempt=1; attempt<=max_attempts; attempt++)); do
+    if git clone --depth=1 \
+      https://android.googlesource.com/kernel/common "$kernel_dir" 2>&1; then
+      cloned=true
+      break
+    fi
+    warn "Kernel clone attempt $attempt/$max_attempts failed"
+    rm -rf "$kernel_dir" 2>/dev/null || true
+    if [[ $attempt -lt $max_attempts ]]; then
+      log "Retrying in 5s ..."
+      sleep 5
+    fi
+  done
+  if [[ "$cloned" != "true" ]]; then
+    warn "Kernel clone failed after $max_attempts attempts"
     return 1
   fi
 
@@ -751,15 +799,6 @@ main() {
     PATCH_COUNT=$(ls -1 "$REPO_DIR/patches/"*.patch 2>/dev/null | wc -l)
   fi
 
-  # Build timing
-  declare -A STAGE_TIMES
-  stage_timer_start() { STAGE_TIMES["$1"]=$(date +%s); }
-  stage_timer_end() {
-    local key="$1" start="${STAGE_TIMES[$1]:-0}" end=$(date +%s)
-    local elapsed=$((end - start))
-    STAGE_TIMES["$1"]=$elapsed
-  }
-
   export LLVM_BRANCH BUILD_DATE LTO_MODE PATCH_COUNT ZSTD_LEVEL
   export GITHUB_RUN_NUMBER="${GITHUB_RUN_NUMBER:-}"
   export GITHUB_RUN_ID="${GITHUB_RUN_ID:-}"
@@ -804,6 +843,7 @@ main() {
   if [[ "$ENABLE_PGO" == "true" ]]; then
     export STAGE1_INSTALL="$BUILD_DIR/stage1-install"
 
+    check_disk_space 5000000 "Stage 1"
     BUILD_STAGE="Stage 1: Instrumented build"
     export BUILD_STAGE
     stage_timer_start "stage1"
@@ -820,12 +860,7 @@ main() {
       cleanup_stage1_artifacts
 
       log "Available disk before Stage 2: $(df -h / | tail -1 | awk '{print $4}')"
-      # Abort early if disk is critically low (Stage 2 ThinLTO needs ~8GB headroom)
-      local avail_kb
-      avail_kb=$(df --output=avail / 2>/dev/null | tail -1 | tr -d ' ')
-      if [[ -n "$avail_kb" && "$avail_kb" -lt 8000000 ]]; then
-        die "Not enough disk space for Stage 2 (${avail_kb}KB available, need ~8GB). Aborting."
-      fi
+      check_disk_space 8000000 "Stage 2"
       BUILD_STAGE="Stage 2: Optimized build"
       export BUILD_STAGE
       stage_timer_start "stage2"
@@ -845,6 +880,7 @@ main() {
       export ENABLE_PGO
       BUILD_STAGE="Simple build (no PGO fallback)"
       export BUILD_STAGE
+      check_disk_space 5000000 "Simple build"
       stage_timer_start "simple"
       simple_build
       stage_timer_end "simple"
@@ -853,6 +889,7 @@ main() {
   else
     BUILD_STAGE="Simple build"
     export BUILD_STAGE
+    check_disk_space 5000000 "Simple build"
     stage_timer_start "simple"
     simple_build
     stage_timer_end "simple"

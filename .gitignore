@@ -12,5 +12,6 @@ output/
 Thumbs.db
 .vscode/
 PROMPT.MD
-.docs
-.opencode
+AGENTS.md
+.opencode/
+.docs/

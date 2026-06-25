@@ -1,8 +1,10 @@
 # CyreneClang
 
-A custom LLVM/Clang toolchain built for Android kernel compilation — balanced between performance, compatibility, and staying bleeding-edge.
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![GitHub Release](https://img.shields.io/github/v/release/naidrahiqa/cyrene_clang)](https://github.com/naidrahiqa/cyrene_clang/releases)
+[![Build Status](https://github.com/naidrahiqa/cyrene_clang/actions/workflows/build.yml/badge.svg)](https://github.com/naidrahiqa/cyrene_clang/actions/workflows/build.yml)
 
-**Current version**: Clang 22.1.0 | Build #54 | Branch `llvmorg-22.1.0`
+A custom LLVM/Clang toolchain optimized for Android kernel compilation. Built with PGO, ThinLTO, and BOLT for maximum performance.
 
 ## Features
 
@@ -27,7 +29,7 @@ A custom LLVM/Clang toolchain built for Android kernel compilation — balanced 
 ### One-liner install (recommended)
 
 ```bash
-bash <(wget -qO- https://raw.githubusercontent.com/naidrahiqa/cyrene_clang/main/scripts/install.sh)
+bash <(wget -qO- https://raw.githubusercontent.com/naidrahiqa/cyrene_clang/main/get_clang.sh)
 ```
 
 ### Manual install
@@ -68,56 +70,72 @@ make -j$(nproc) \
   CROSS_COMPILE=aarch64-linux-gnu-
 ```
 
-### Optional: Enable Polly in your kernel
+### Unified Kernel Build Script
 
-Add to your kernel `Makefile` or build script:
 ```bash
-KCFLAGS="-mllvm -polly -mllvm -polly-vectorizer=stripmine"
+# Auto-detect kernel version and apply correct flags
+bash scripts/kernel-build.sh <kernel-dir> --defconfig=<name> --lto=auto
+
+# Examples
+bash scripts/kernel-build.sh ~/kernel/msm-4.19 --lto=off
+bash scripts/kernel-build.sh ~/kernel/msm-5.15 --defconfig=vendor/sdm845_defconfig
+bash scripts/kernel-build.sh ~/kernel/android-mainline --lto=thin
 ```
 
-## Kernel LTO Integration
-
-ThinLTO can dramatically improve kernel performance. Use the helper script to set up the environment:
+### Kernel LTO Integration
 
 ```bash
 source scripts/kernel-lto.sh [kernel-source-dir]
-
-# Then run your normal kernel make command
 make -j$(nproc) O=out ARCH=arm64 ...
 ```
-
-The script:
-- Validates Clang >= 12.0 (required for ThinLTO)
-- Exports `CC=clang`, `LD=ld.lld`, `AR=llvm-ar` with correct `KCFLAGS="-flto=thin"`
-- Warns if kernel < 5.12 (incomplete LTO support)
-- Parses `clang-version.txt` for build metadata
-
-Works both when sourced (`.`) or executed directly.
 
 ## Repository Structure
 
 ```
 cyrene-clang/
-├── .github/workflows/
-│   ├── build.yml               # CI/CD pipeline (build + package + release)
-│   └── sync-patches.yml        # Auto-sync patches from LLVM stable
-├── scripts/
-│   ├── build.sh                # CMake configure + 2-stage PGO + BOLT
-│   ├── install.sh              # One-liner installer
-│   ├── patch.sh                # Apply patches from patches/
-│   ├── package.sh              # Compress + generate manifests
-│   ├── notify.sh               # Telegram notification helper
-│   ├── kernel-lto.sh           # Kernel ThinLTO environment helper
-│   ├── sync-patches.sh         # Auto cherry-pick from LLVM stable
-│   └── check-compat.sh         # Compatibility validator
-├── patches/                    # Custom LLVM patches (format-patch style)
+├── .github/
+│   ├── workflows/
+│   │   ├── build.yml           # CI/CD pipeline
+│   │   ├── lint.yml            # ShellCheck linting
+│   │   └── sync-patches.yml    # Auto-sync from LLVM stable
+│   ├── ISSUE_TEMPLATE/
+│   │   ├── bug_report.md
+│   │   └── feature_request.md
+│   └── PULL_REQUEST_TEMPLATE.md
+├── config/
+│   ├── build.conf              # Default build configuration
+│   └── kernels/
+│       ├── 4.x.conf            # Kernel 4.x settings
+│       ├── 5.x.conf            # Kernel 5.x settings
+│       └── 6.x.conf            # Kernel 6.x settings
+├── contrib/                    # Community contributions
+├── docker/                     # Docker build environment
 ├── docs/
-│   ├── SKILL.md                # Full project reference for AI
-│   ├── feature-general.md      # General feature dev prompt template
-│   └── feature-specific.md     # Specific feature prompts (LTO, PGO, dll)
-├── PROMPT.MD                   # OpenCode AI system prompt
-├── README.MD
-└── .gitignore
+│   ├── CHANGELOG.md
+│   ├── CONTRIBUTING.md
+│   ├── SKILL.md
+│   └── TROUBLESHOOT.md
+├── patches/                    # Custom LLVM patches
+├── scripts/
+│   ├── build.sh                # Main build script
+│   ├── check-compat.sh         # Compatibility validator
+│   ├── install.sh              # Legacy installer
+│   ├── kernel-build.sh         # Unified kernel build (4.x-6.x)
+│   ├── kernel-lto.sh           # Kernel ThinLTO helper
+│   ├── notify.sh               # Telegram notifications
+│   ├── package.sh              # Package + manifest generator
+│   ├── patch.sh                # Patch application
+│   └── sync-patches.sh         # LLVM stable sync
+├── tests/
+│   └── test-build.sh           # Build tests
+├── .editorconfig
+├── .gitignore
+├── Dockerfile
+├── LICENSE                     # Apache-2.0
+├── Makefile                    # Common tasks
+├── README.md
+├── VERSION                     # Version tracking
+└── get_clang.sh                # One-liner installer
 ```
 
 ## Building from Source
@@ -125,11 +143,22 @@ cyrene-clang/
 ```bash
 git clone https://github.com/naidrahiqa/cyrene_clang
 cd cyrene_clang
-chmod +x scripts/*.sh
-bash scripts/build.sh
+make build  # or: bash scripts/build.sh
 ```
 
-Environment variables:
+### Make Commands
+
+| Command | Description |
+|---|---|
+| `make build` | Full build with PGO + BOLT |
+| `make build-simple` | Quick build without PGO |
+| `make lint` | Run ShellCheck on scripts |
+| `make test` | Run build tests |
+| `make docker-build` | Build in Docker |
+| `make clean` | Remove build artifacts |
+
+### Environment Variables
+
 | Variable | Default | Description |
 |---|---|---|
 | `LLVM_BRANCH` | `llvmorg-22.1.0` | LLVM branch or tag to build |
@@ -141,6 +170,16 @@ Environment variables:
 | `JOBS` | auto | Parallel build jobs (auto-detected from RAM) |
 | `CLANG_VENDOR` | `CyreneClang` | Vendor string in clang version output |
 | `INSTALL_DIR` | `~/toolchains/cyrene` | Where to install the toolchain |
+
+## Docker Build
+
+```bash
+# Build in Docker container
+make docker-build
+
+# Run build inside Docker
+make docker-run
+```
 
 ## Adding Custom Patches
 
@@ -154,134 +193,22 @@ Environment variables:
    ```
 3. Push — the workflow auto-triggers on changes to `patches/`.
 
-## Telegram Notifications
-
-The CI pipeline sends build status notifications via Telegram Bot API.
-
-### Setup
-
-1. Create a bot via [@BotFather](https://t.me/botfather) and get the token.
-2. Get your chat/channel ID.
-3. Add secrets to your GitHub repository:
-   - `TELEGRAM_BOT_TOKEN` — your bot token
-   - `TELEGRAM_CHAT_ID` — target chat/channel ID (e.g. `@channelname` or numeric ID)
-
-Notifications are sent on:
-- Build started
-- Build success/failure
-- New release published
-
-## Manifest Format (`clang-version.txt`)
-
-```
-CLANG_VERSION=19.0.0git
-LLVM_COMMIT=abc1234
-BUILD_DATE=2024-11-01
-BUILD_HOST=GitHub Actions
-PGO=true
-BOLT=true
-LTO=Thin
-TARGETS=AArch64;ARM;X86
-TARBALL_SIZE=350M
-SHA256=192f1f685d917735a9a9dc93a034293cc98ae101879c1c46f2f03842de62673b
-DOWNLOAD_URL=https://github.com/naidrahiqa/cyrene_clang/releases/download/.../cyrene-clang.tar.zst
-```
-
-## Build Notes (`clang_notes.txt`)
-
-Structured metadata file (inspired by greenforce_clang):
-
-```
-[date]
-2026-06-15
-
-[clang-ver]
-Cirrus clang version 22.1.0 (https://github.com/llvm/llvm-project abc1234)
-
-[lld-ver]
-LLD 22.1.0 (https://github.com/llvm/llvm-project abc1234) (compatible with GNU linkers)
-
-[llvm-commit]
-https://github.com/llvm/llvm-project/commit/abc1234def56789
-
-[host-glibc]
-2.35
-
-[size]
-38M
-
-[pgo]
-true
-
-[bolt]
-true
-
-[lto]
-Thin
-
-[link-rel]
-https://github.com/naidrahiqa/cyrene_clang/releases/download/.../cyrene-clang.tar.zst
-
-[shasum]
-192f1f685d917735a9a9dc93a034293cc98ae101879c1c46f2f03842de62673b
-```
-
-## Auto Patch Sync
-
-Automatically cherry-pick patches from LLVM stable branches without manual `.patch` file management.
-
-### Config
-
-Edit [`patches/stable-picks.txt`](patches/stable-picks.txt) — one LLVM commit hash per line:
-```
-# Lines starting with # are ignored
-a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0
-```
-
-### Manual Sync
-
-```bash
-bash scripts/sync-patches.sh
-```
-
-### Automated Sync (CI)
-
-The workflow `.github/workflows/sync-patches.yml` runs:
-- **Every Friday** (before Monday's main build)
-- **On demand** via `workflow_dispatch`
-
-It creates a PR with any new patches for review — never pushes directly.
-
 ## Compatibility Check
-
-Validate your CyreneClang installation against a kernel tree:
 
 ```bash
 # Check toolchain only
-bash scripts/check-compat.sh
+make test-compat
 
-# Check toolchain + kernel compatibility
+# Or directly
 bash scripts/check-compat.sh ~/kernel/msm-5.15
 ```
 
-The script checks:
-- All LLVM tools present in PATH from the same installation
-- Clang version compatibility with kernel (>= 14 for kernel 6.x, >= 12 for LTO)
-- `ld.lld` version matches Clang major version
-- Parses `clang-version.txt` for build metadata
+## Documentation
 
-Output: colored summary with **PASS** / **WARN** / **FAIL** and exit codes (0/1/2).
-
-## Feature Development
-
-For developers adding new features to CyreneClang:
-
-- **[docs/feature-general.md](docs/feature-general.md)** — Template prompt for OpenCode sessions when starting a new feature
-- **[docs/feature-specific.md](docs/feature-specific.md)** — Ready-to-use prompts for specific features (kernel LTO, auto patch sync, multi-stage PGO, compatibility checker)
-
-Paste the relevant prompt into OpenCode at the start of a feature development session.
+- [Changelog](docs/CHANGELOG.md) — Version history
+- [Contributing](docs/CONTRIBUTING.md) — How to contribute
+- [Troubleshooting](docs/TROUBLESHOOT.md) — Common issues and fixes
 
 ## License
 
-LLVM is licensed under the Apache 2.0 License with LLVM exceptions.
-Build scripts in this repo are MIT licensed.
+Licensed under the [Apache License, Version 2.0](LICENSE).

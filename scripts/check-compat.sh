@@ -104,6 +104,8 @@ fi
 # ─── 5. Kernel compatibility ────────────────────────────────────────────
 echo ""
 echo -e "${BLD}5. Kernel compatibility${RST}"
+KV=0
+KP=0
 if [[ -n "$KERNEL_DIR" && -f "$KERNEL_DIR/Makefile" ]]; then
   KV=$(grep -oP '^VERSION\s*=\s*\K\d+' "$KERNEL_DIR/Makefile" 2>/dev/null || echo "0")
   KP=$(grep -oP '^PATCHLEVEL\s*=\s*\K\d+' "$KERNEL_DIR/Makefile" 2>/dev/null || echo "0")
@@ -113,6 +115,8 @@ if [[ -n "$KERNEL_DIR" && -f "$KERNEL_DIR/Makefile" ]]; then
     ok "Kernel $KV.$KP + Clang $CLANG_MAJOR = compatible"
   elif [[ "$KV" -ge 5 && "$KP" -ge 12 ]] && [[ "$CLANG_MAJOR" -ge 12 ]]; then
     ok "Kernel $KV.$KP + Clang $CLANG_MAJOR = compatible (LTO supported)"
+  elif [[ "$KV" -ge 5 ]] && [[ "$CLANG_MAJOR" -ge 12 ]]; then
+    ok "Kernel $KV.$KP + Clang $CLANG_MAJOR = compatible (LTO optional)"
   elif [[ "$CLANG_MAJOR" -ge 11 ]]; then
     ok "Kernel $KV.$KP + Clang $CLANG_MAJOR = compatible"
   else
@@ -123,6 +127,46 @@ elif [[ -n "$KERNEL_DIR" ]]; then
 else
   info "No kernel path provided — skipping kernel check"
   echo "  Pass a kernel source directory as first argument to validate compatibility."
+fi
+
+# ─── 6. Kernel version guide ────────────────────────────────────────────
+echo ""
+echo -e "${BLD}6. Build recommendations${RST}"
+if [[ "$KV" -gt 0 ]]; then
+  # LTO recommendation
+  if [[ "$KV" -ge 6 ]]; then
+    ok "LTO: ThinLTO recommended (KCFLAGS=\"-flto=thin\")"
+  elif [[ "$KV" -ge 5 && "$KP" -ge 12 ]]; then
+    ok "LTO: ThinLTO supported (KCFLAGS=\"-flto=thin\")"
+  elif [[ "$KV" -ge 5 ]]; then
+    warn "LTO: Partial support, use --lto=off for safety"
+  else
+    warn "LTO: Not supported on kernel < 5.0, use --lto=off"
+  fi
+
+  # Warning suppress flags
+  if [[ "$KV" -eq 4 ]]; then
+    warn "Warning flags: Kernel 4.x needs 19+ -Wno-* flags for modern Clang"
+    info "  Use: kernel-build.sh (auto-applies warning suppress)"
+    info "  Or manually add: -Wno-unused-function -Wno-unused-variable ..."
+  elif [[ "$KV" -eq 5 && "$KP" -lt 12 ]]; then
+    info "Warning flags: Kernel 5.0-5.11 may need 5 -Wno-* flags"
+  else
+    ok "Warning flags: Minimal suppress needed"
+  fi
+
+  # Build command example
+  echo ""
+  info "Recommended build command:"
+  if [[ "$KV" -lt 5 ]]; then
+    info "  kernel-build.sh $KERNEL_DIR --defconfig=<name> --lto=off"
+  elif [[ "$KV" -ge 5 && "$KP" -ge 12 ]]; then
+    info "  kernel-build.sh $KERNEL_DIR --defconfig=<name> --lto=thin"
+  else
+    info "  kernel-build.sh $KERNEL_DIR --defconfig=<name> --lto=auto"
+  fi
+else
+  info "Provide a kernel directory to see build recommendations"
 fi
 
 # ─── Summary ─────────────────────────────────────────────────────────────

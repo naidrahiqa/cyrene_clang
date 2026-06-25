@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# CyreneClang — Kernel 4.x Build Helper
-# Optimized for legacy kernels (4.14, 4.19, 4.20) with modern Clang 22.
-# Usage: bash scripts/kernel-4x-build.sh <kernel-dir> [options]
-# NOTE: This script does NOT modify any existing CyreneClang scripts.
+# CyreneClang — Unified Kernel Build Script
+# Auto-detects kernel version and applies correct flags for 4.19+ kernels.
+# Replaces kernel-4x-build.sh and kernel-lto.sh with a single entry point.
+# Usage: bash scripts/kernel-build.sh <kernel-dir> [options]
 set -euo pipefail
 
 # ─── Configuration ────────────────────────────────────────────────────────────
@@ -17,74 +17,94 @@ JOBS="${JOBS:-$(nproc)}"
 CROSS_COMPILE="${CROSS_COMPILE:-aarch64-linux-gnu-}"
 CLANG_TRIPLE="${CLANG_TRIPLE:-aarch64-linux-gnu-}"
 OUT_DIR="${OUT_DIR:-}"
+LTO_MODE="${LTO_MODE:-auto}"
 DRY_RUN="${DRY_RUN:-false}"
 VERBOSE="${VERBOSE:-false}"
+KCFLAGS_EXTRA="${KCFLAGS:-}"
 
-# Flags for kernel 4.x compatibility (suppress modern Clang warnings)
-WARN_SUPPRESS=(
+# ─── Warning suppress flags per kernel era ────────────────────────────────────
+# 4.x kernels trigger many warnings with modern Clang (22+)
+WARN_4X=(
   -Wno-unused-function
   -Wno-unused-variable
   -Wno-unused-but-set-variable
   -Wno-address-of-packed-member
   -Wno-shift-negative-value
   -Wno-pointer-sign
-  -Wno-misleading-indentation
-  -Wno-bool-compare
   -Wno-maybe-uninitialized
   -Wno-array-bounds
   -Wno-shift-overflow
   -Wno-implicit-fallthrough
-  -Wno-format
-  -Wno-format-security
-  -Wno-tautological-compare
-  -Wno-missing-field-initializers
-  -Wno-self-assign
   -Wno-incompatible-pointer-types
   -Wno-deprecated-declarations
   -Wno-constant-conversion
+  -Wno-missing-field-initializers
+  -Wno-tautological-compare
   -Wno-parentheses-equality
   -Wno-empty-body
   -Wno-uninitialized
   -Wno-dangling-else
-  -Wno-logical-op-parentheses
-  -Wno-precedence
+)
+
+# 5.x kernels need fewer suppress flags
+WARN_5X=(
+  -Wno-unused-but-set-variable
+  -Wno-address-of-packed-member
+  -Wno-maybe-uninitialized
+  -Wno-incompatible-pointer-types
+)
+
+# 6.x kernels — minimal suppress
+WARN_6X=(
+  -Wno-address-of-packed-member
 )
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
-log()   { echo -e "\033[1;36m[Kernel-4x]\033[0m $*"; }
+log()   { echo -e "\033[1;36m[Kernel]\033[0m $*"; }
 warn()  { echo -e "\033[1;33m[WARN]\033[0m $*" >&2; }
 die()   { echo -e "\033[1;31m[ERROR]\033[0m $*" >&2; exit 1; }
 info()  { echo -e "\033[1;32m[INFO]\033[0m $*"; }
 
-usage() {
-  cat << EOF
-CyreneClang — Kernel 4.x Build Helper
+START_TIME=$(date +%s)
 
-Usage: $0 <kernel-dir> [options]
+usage() {
+  cat << 'EOF'
+CyreneClang — Unified Kernel Build Script
+
+Usage: kernel-build.sh <kernel-dir> [options]
 
 Options:
   --arch=<arch>          Target architecture (default: arm64)
-  --defconfig=<name>     Use specific defconfig (default: defconfig)
+  --defconfig=<name>     Use specific defconfig (default: auto-detect)
   --cross=<prefix>       Cross-compile prefix (default: aarch64-linux-gnu-)
+  --triple=<triple>      Target triple (default: aarch64-linux-gnu-)
   --jobs=<n>             Parallel jobs (default: nproc)
   --out=<dir>            Output directory (default: <kernel-dir>/out)
+  --lto=<mode>           LTO mode: thin, full, off, auto (default: auto)
+                         auto = thin for kernel >= 5.12, off for < 5.0
   --dry-run              Show commands without executing
   --verbose              Show full make output
+  --no-warn-suppress     Don't add -Wno-* flags for legacy kernels
+  --help                 Show this help
 
 Environment variables:
-  ARCH                   Target architecture
-  CROSS_COMPILE          Cross-compile prefix
-  CLANG_TRIPLE           Target triple for Clang
-  JOBS                   Number of parallel jobs
-  OUT_DIR                Output directory
-  KCFLAGS                Additional kernel C flags
-  DRY_RUN                Set to 'true' to dry-run
+  ARCH, CROSS_COMPILE, CLANG_TRIPLE, JOBS, OUT_DIR, KCFLAGS
 
 Examples:
-  $0 ~/kernel/msm-4.19
-  $0 ~/kernel/msm-4.19 --defconfig=vendor/sdm845-perf_defconfig
-  $0 ~/kernel/msm-4.19 --arch=arm --cross=arm-linux-gnueabi-
-  DRY_RUN=true $0 ~/kernel/msm-4.19  # dry run
+  # Kernel 4.19 — auto-detect, no LTO, warning suppress
+  kernel-build.sh ~/kernel/msm-4.19
+
+  # Kernel 5.15 — auto ThinLTO
+  kernel-build.sh ~/kernel/msm-5.15 --defconfig=vendor/sdm845_defconfig
+
+  # Kernel 6.1 — GKI with ThinLTO
+  kernel-build.sh ~/kernel/android-mainline --lto=thin --arch=arm64
+
+  # Force LTO off on kernel 5.x
+  kernel-build.sh ~/kernel/msm-5.10 --lto=off
+
+  # Dry run to see what commands would run
+  kernel-build.sh ~/kernel/msm-4.19 --dry-run
 
 EOF
   exit 0
@@ -94,15 +114,18 @@ EOF
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --arch=*)      ARCH="${1#*=}" ;;
-      --defconfig=*) DEFCONFIG="${1#*=}" ;;
-      --cross=*)     CROSS_COMPILE="${1#*=}" ;;
-      --jobs=*)      JOBS="${1#*=}" ;;
-      --out=*)       OUT_DIR="${1#*=}" ;;
-      --dry-run)     DRY_RUN=true ;;
-      --verbose)     VERBOSE=true ;;
-      --help|-h)     usage ;;
-      -*)            die "Unknown option: $1" ;;
+      --arch=*)           ARCH="${1#*=}" ;;
+      --defconfig=*)      DEFCONFIG="${1#*=}" ;;
+      --cross=*)          CROSS_COMPILE="${1#*=}" ;;
+      --triple=*)         CLANG_TRIPLE="${1#*=}" ;;
+      --jobs=*)           JOBS="${1#*=}" ;;
+      --out=*)            OUT_DIR="${1#*=}" ;;
+      --lto=*)            LTO_MODE="${1#*=}" ;;
+      --dry-run)          DRY_RUN=true ;;
+      --verbose)          VERBOSE=true ;;
+      --no-warn-suppress) NO_WARN_SUPPRESS=true ;;
+      --help|-h)          usage ;;
+      -*)                 die "Unknown option: $1" ;;
       *)
         if [[ -z "$KERNEL_DIR" ]]; then
           KERNEL_DIR="$1"
@@ -121,7 +144,7 @@ parse_args() {
   OUT_DIR="${OUT_DIR:-$KERNEL_DIR/out}"
 }
 
-# ─── Detect Kernel Version ──────────────────────────────────────────────────
+# ─── Detect kernel version ──────────────────────────────────────────────────
 detect_kernel() {
   local kv kp
   kv=$(grep -E '^VERSION\s*=' "$KERNEL_DIR/Makefile" | head -1 | awk '{print $3}')
@@ -130,22 +153,17 @@ detect_kernel() {
   KERNEL_P="${kp:-0}"
   KERNEL_FULL="$KERNEL_V.$KERNEL_P"
 
-  info "Kernel version: $KERNEL_FULL"
+  log "Detected kernel: $KERNEL_FULL"
 
   if [[ "$KERNEL_V" -lt 4 || ("$KERNEL_V" -eq 4 && "$KERNEL_P" -lt 14) ]]; then
-    warn "Kernel < 4.14 may have issues with modern Clang. Proceed with caution."
-  fi
-  if [[ "$KERNEL_V" -ge 5 ]]; then
-    warn "Kernel >= 5.x detected. Consider using kernel-lto.sh instead."
+    warn "Kernel < 4.14 is NOT supported by CyreneClang. Proceed at your own risk."
   fi
 }
 
-# ─── Detect Toolchain ──────────────────────────────────────────────────────
-detect_toolchain() {
-  log "Detecting CyreneClang toolchain ..."
-
+# ─── Detect Clang version ──────────────────────────────────────────────────
+detect_clang() {
   if ! command -v clang &>/dev/null; then
-    die "clang not found in PATH. Install CyreneClang first."
+    die "clang not found in PATH. Add CyreneClang bin to PATH first."
   fi
 
   CLANG_VER=$(clang --version | head -1 | grep -oP '\d+\.\d+\.\d+' | head -1 || echo "unknown")
@@ -164,16 +182,73 @@ detect_toolchain() {
   if [[ ${#missing[@]} -gt 0 ]]; then
     die "Missing tools: ${missing[*]}"
   fi
+}
 
-  # Parse manifest if available
-  if [[ -f "$MANIFEST" ]]; then
-    CLANG_VERSION_MANIFEST=$(grep -oP 'CLANG_VERSION=\K.*' "$MANIFEST" 2>/dev/null || echo "")
-    PGO_STATUS=$(grep -oP 'PGO=\K.*' "$MANIFEST" 2>/dev/null || echo "unknown")
-    info "Manifest: Clang $CLANG_VERSION_MANIFEST, PGO=$PGO_STATUS"
+# ─── Resolve LTO mode ──────────────────────────────────────────────────────
+resolve_lto() {
+  case "$LTO_MODE" in
+    thin|Thin)
+      LTO_MODE="thin"
+      ;;
+    full|Full)
+      LTO_MODE="full"
+      ;;
+    off|Off)
+      LTO_MODE="off"
+      ;;
+    auto|Auto)
+      # Auto-detect based on kernel version
+      if [[ "$KERNEL_V" -ge 6 ]]; then
+        LTO_MODE="thin"
+      elif [[ "$KERNEL_V" -ge 5 && "$KERNEL_P" -ge 12 ]]; then
+        LTO_MODE="thin"
+      elif [[ "$KERNEL_V" -ge 5 ]]; then
+        LTO_MODE="off"
+        warn "Kernel 5.0-5.11 has partial LTO support. Using --lto=off for safety."
+      else
+        LTO_MODE="off"
+        info "Kernel < 5.0 has no LTO support. Disabling LTO."
+      fi
+      ;;
+    *)
+      die "Invalid LTO mode: $LTO_MODE (use: thin, full, off, auto)"
+      ;;
+  esac
+
+  # Validate LTO vs kernel version
+  if [[ "$LTO_MODE" != "off" && "$KERNEL_V" -lt 5 ]]; then
+    warn "Kernel < 5.0 does not support LTO. Forcing --lto=off."
+    LTO_MODE="off"
+  fi
+
+  if [[ "$LTO_MODE" != "off" && "$CLANG_MAJOR" -lt 12 ]]; then
+    warn "Clang < 12 has limited LTO support. Forcing --lto=off."
+    LTO_MODE="off"
+  fi
+
+  log "LTO mode: $LTO_MODE"
+}
+
+# ─── Build warning suppress flags ──────────────────────────────────────────
+build_warn_flags() {
+  if [[ "${NO_WARN_SUPPRESS:-false}" == "true" ]]; then
+    WARN_FLAGS=()
+    return
+  fi
+
+  if [[ "$KERNEL_V" -eq 4 ]]; then
+    WARN_FLAGS=("${WARN_4X[@]}")
+    log "Kernel 4.x detected: applying ${#WARN_FLAGS[@]} warning suppress flags"
+  elif [[ "$KERNEL_V" -eq 5 && "$KERNEL_P" -lt 12 ]]; then
+    WARN_FLAGS=("${WARN_5X[@]}")
+    log "Kernel 5.0-5.11: applying ${#WARN_FLAGS[@]} warning suppress flags"
+  else
+    WARN_FLAGS=("${WARN_6X[@]}")
+    log "Kernel $KERNEL_FULL: applying ${#WARN_FLAGS[@]} warning suppress flags"
   fi
 }
 
-# ─── Detect Defconfig ──────────────────────────────────────────────────────
+# ─── Detect defconfig ──────────────────────────────────────────────────────
 detect_defconfig() {
   if [[ -n "$DEFCONFIG" ]]; then
     log "Using specified defconfig: $DEFCONFIG"
@@ -182,7 +257,6 @@ detect_defconfig() {
 
   log "Auto-detecting defconfig ..."
 
-  # Common defconfig names for Android kernels
   local candidates=(
     "defconfig"
     "vendor/${ARCH}-perf_defconfig"
@@ -203,7 +277,7 @@ detect_defconfig() {
 
   # Try to find any defconfig
   local found
-  found=$(find "$KERNEL_DIR/arch/$ARCH/configs" -maxdepth 1 -name "*defconfig*" -type f | head -1 || true)
+  found=$(find "$KERNEL_DIR/arch/$ARCH/configs" -maxdepth 1 -name "*defconfig*" -type f 2>/dev/null | head -1 || true)
   if [[ -n "$found" ]]; then
     DEFCONFIG=$(basename "$found")
     info "Using first defconfig found: $DEFCONFIG"
@@ -212,7 +286,7 @@ detect_defconfig() {
   fi
 }
 
-# ─── Clean Previous Build ──────────────────────────────────────────────────
+# ─── Clean previous build ──────────────────────────────────────────────────
 clean_build() {
   if [[ -d "$OUT_DIR" ]]; then
     log "Cleaning previous build at $OUT_DIR ..."
@@ -221,7 +295,7 @@ clean_build() {
   mkdir -p "$OUT_DIR"
 }
 
-# ─── Configure Kernel ──────────────────────────────────────────────────────
+# ─── Configure kernel ──────────────────────────────────────────────────────
 configure_kernel() {
   log "Configuring kernel with $DEFCONFIG ..."
 
@@ -251,20 +325,30 @@ configure_kernel() {
   info "Kernel configured successfully."
 }
 
-# ─── Build Kernel ──────────────────────────────────────────────────────────
+# ─── Build kernel ──────────────────────────────────────────────────────────
 build_kernel() {
-  log "Building kernel (jobs=$JOBS) ..."
+  log "Building kernel (jobs=$JOBS, lto=$LTO_MODE) ..."
 
   # Build KCFLAGS string
-  local kcflags=("${WARN_SUPPRESS[@]}")
+  local kcflags=()
+
+  # Add warning suppress flags
+  kcflags+=("${WARN_FLAGS[@]+"${WARN_FLAGS[@]}"}")
+
+  # Add LTO flags if enabled
+  if [[ "$LTO_MODE" == "thin" ]]; then
+    kcflags+=(-flto=thin)
+  elif [[ "$LTO_MODE" == "full" ]]; then
+    kcflags+=(-flto)
+  fi
 
   # Add user-specified KCFLAGS
-  if [[ -n "${KCFLAGS:-}" ]]; then
-    IFS=' ' read -ra extra_flags <<< "$KCFLAGS"
+  if [[ -n "$KCFLAGS_EXTRA" ]]; then
+    IFS=' ' read -ra extra_flags <<< "$KCFLAGS_EXTRA"
     kcflags+=("${extra_flags[@]}")
   fi
 
-  local kcflags_str="${kcflags[*]}"
+  local kcflags_str="${kcflags[*]:-}"
 
   local cmd=(
     make -C "$KERNEL_DIR"
@@ -282,9 +366,13 @@ build_kernel() {
     OBJCOPY=llvm-objcopy
     OBJDUMP=llvm-objdump
     READELF=llvm-readelf
-    KCFLAGS="$kcflags_str"
     -j"$JOBS"
   )
+
+  # Add KCFLAGS only if non-empty
+  if [[ -n "$kcflags_str" ]]; then
+    cmd+=(KCFLAGS="$kcflags_str")
+  fi
 
   if [[ "$DRY_RUN" == "true" ]]; then
     info "[DRY RUN] ${cmd[*]}"
@@ -296,7 +384,6 @@ build_kernel() {
   if [[ "$VERBOSE" == "true" ]]; then
     "${cmd[@]}"
   else
-    # Capture output, show only errors and progress
     local build_log="$OUT_DIR/build.log"
     "${cmd[@]}" 2>&1 | tee "$build_log" | {
       grep -E "^\*|error:|warning:|LD |OBJCOPY |CC |AR " || true
@@ -313,7 +400,7 @@ build_kernel() {
   info "Build completed successfully!"
 }
 
-# ─── Generate Image ────────────────────────────────────────────────────────
+# ─── Generate image ────────────────────────────────────────────────────────
 generate_image() {
   log "Generating kernel image ..."
 
@@ -333,7 +420,6 @@ generate_image() {
     OBJCOPY=llvm-objcopy
     OBJDUMP=llvm-objdump
     READELF=llvm-readelf
-    KCFLAGS="${WARN_SUPPRESS[*]}"
     -j"$JOBS"
     Image
   )
@@ -371,7 +457,7 @@ generate_image() {
   fi
 }
 
-# ─── Build Summary ──────────────────────────────────────────────────────────
+# ─── Build summary ──────────────────────────────────────────────────────────
 print_summary() {
   local end_time
   end_time=$(date +%s)
@@ -387,24 +473,24 @@ print_summary() {
   info "Kernel:   $KERNEL_FULL"
   info "Arch:     $ARCH"
   info "Clang:    $CLANG_VER"
+  info "LTO:      $LTO_MODE"
   info "Output:   $OUT_DIR"
   info "Duration: ${h}h ${m}m ${s}s"
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-  # Show final disk usage
   df -h / 2>/dev/null | tail -1 || true
 }
 
 # ─── Main ────────────────────────────────────────────────────────────────────
 main() {
-  START_TIME=$(date +%s)
-
-  log "CyreneClang — Kernel 4.x Build Helper"
+  log "CyreneClang — Unified Kernel Build Script"
   echo ""
 
   parse_args "$@"
   detect_kernel
-  detect_toolchain
+  detect_clang
+  resolve_lto
+  build_warn_flags
   detect_defconfig
 
   log "Configuration:"
@@ -414,7 +500,9 @@ main() {
   info "  Defconfig:   $DEFCONFIG"
   info "  Jobs:        $JOBS"
   info "  Cross:       $CROSS_COMPILE"
-  info "  Clang triple: $CLANG_TRIPLE"
+  info "  Triple:      $CLANG_TRIPLE"
+  info "  LTO:         $LTO_MODE"
+  info "  Warn flags:  ${#WARN_FLAGS[@]}"
   echo ""
 
   clean_build
