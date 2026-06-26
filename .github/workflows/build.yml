@@ -30,6 +30,7 @@ on:
     paths:
       - 'patches/**'
       - 'scripts/**'
+      - '.github/workflows/**'
 
 permissions:
   contents: write

@@ -5,10 +5,12 @@ on:
     paths:
       - 'scripts/**'
       - '*.sh'
+      - '.github/workflows/**'
   pull_request:
     paths:
       - 'scripts/**'
       - '*.sh'
+      - '.github/workflows/**'
 
 jobs:
   shellcheck:
