@@ -60,7 +60,7 @@ jobs:
     steps:
       # ── Prep ────────────────────────────────────────────────────────────────
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set release tag from LLVM branch
         run: |
@@ -194,7 +194,7 @@ jobs:
             binutils-aarch64-linux-gnu
 
       - name: Setup ccache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cache/ccache
           key: ${{ runner.os }}-ccache-${{ env.LLVM_BRANCH }}-${{ github.sha }}
@@ -217,7 +217,7 @@ jobs:
           echo "BUILD_STAGE=Running build" >> "$GITHUB_ENV"
           bash scripts/build.sh
         env:
-          JOBS: 6
+          JOBS: 2
           LLVM_BRANCH: ${{ env.LLVM_BRANCH }}
           ENABLE_PGO: ${{ env.ENABLE_PGO }}
           ENABLE_BOLT: ${{ env.ENABLE_BOLT }}
@@ -253,7 +253,7 @@ jobs:
 
       # ── Upload artifact ──────────────────────────────────────────────────────
       - name: Upload toolchain artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: cyrene-clang-${{ env.CYRENE_VERSION }}
           path: |
