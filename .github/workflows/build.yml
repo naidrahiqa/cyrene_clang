@@ -198,7 +198,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ~/.cache/ccache
-          key: ${{ runner.os }}-ccache-${{ env.LLVM_BRANCH }}-${{ github.sha }}
+          key: ${{ runner.os }}-ccache-${{ env.LLVM_BRANCH }}-${{ github.run_id }}
           restore-keys: |
             ${{ runner.os }}-ccache-${{ env.LLVM_BRANCH }}-
             ${{ runner.os }}-ccache-
@@ -218,11 +218,12 @@ jobs:
           echo "BUILD_STAGE=Running build" >> "$GITHUB_ENV"
           bash scripts/build.sh
         env:
-          JOBS: 2
+          JOBS: 4
           LLVM_BRANCH: ${{ env.LLVM_BRANCH }}
           ENABLE_PGO: ${{ env.ENABLE_PGO }}
           ENABLE_BOLT: ${{ env.ENABLE_BOLT }}
           PGO_WORKLOAD: ${{ env.PGO_WORKLOAD }}
+          ZSTD_LEVEL: 10
 
       - name: Show ccache stats
         run: ccache -s

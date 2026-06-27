@@ -249,8 +249,11 @@ cmake_configure() {
     cmake_extra_args+=("-DLLVM_CCACHE_PARAMS=sloppiness=file_stat_matches|compression=true|compression_level=9")
   fi
 
-  # Limit parallel link jobs to 1 to avoid OOM / disk explosion during ThinLTO linking
-  cmake_extra_args+=("-DLLVM_PARALLEL_LINK_JOBS=1")
+  # Limit parallel link jobs to avoid OOM during ThinLTO linking
+  # Default: JOBS/2 with min 1 — safe on GitHub runners (16GB RAM, JOBS=4 → link_jobs=2)
+  local link_jobs="${PARALLEL_LINK_JOBS:-$(( JOBS > 2 ? JOBS / 2 : 1 ))}"
+  [[ "$link_jobs" -lt 1 ]] && link_jobs=1
+  cmake_extra_args+=("-DLLVM_PARALLEL_LINK_JOBS=$link_jobs")
 
   # Use shared ThinLTO cache across targets to save disk + time
   cmake_extra_args+=("-DLLVM_THIN_LTO_CACHE_DIR=$BUILD_DIR/lto-cache")
@@ -564,8 +567,7 @@ cleanup_stage1_artifacts() {
   # Prune LLVM git aggressively (saves ~1GB)
   if [[ -d "$LLVM_DIR/.git" ]]; then
     log "Pruning LLVM git objects ..."
-    git -C "$LLVM_DIR" gc --aggressive --prune=now 2>/dev/null || true
-    git -C "$LLVM_DIR" repack -a -d --window=250 --depth=1 2>/dev/null || true
+    git -C "$LLVM_DIR" gc --auto 2>/dev/null || true
     # Remove reflog + stash to free more space
     git -C "$LLVM_DIR" reflog expire --expire=now --all 2>/dev/null || true
   fi
