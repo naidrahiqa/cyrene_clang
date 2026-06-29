@@ -62,6 +62,7 @@ run_benchmark() {
 
     rm -rf "$out_dir"
     mkdir -p "$out_dir"
+    : > "$log_file"  # clear log from previous run
 
     # Build with timing + memory tracking
     local start_time end_time elapsed
@@ -94,9 +95,9 @@ run_benchmark() {
       make_args+=(LTO=$lto)
     fi
 
-    # Run defconfig + build
+    # Run defconfig + build (redirect to stderr so stdout stays clean for JSON)
     make "${make_args[@]}" defconfig 2>/dev/null
-    $time_cmd make "${make_args[@]}" 2>&1 | tee "$log_file" || true
+    $time_cmd make "${make_args[@]}" >>"$log_file" 2>&1 || true
 
     end_time=$(date +%s%N)
     elapsed=$(( (end_time - start_time) / 1000000 ))  # ms
@@ -142,7 +143,7 @@ run_benchmark() {
 log "=== Cyrene Clang Benchmark ==="
 log "Kernel: $KERNEL_SOURCE"
 log "Runs per config: $RUNS"
-echo ""
+echo "" >&2
 
 RESULTS_ARRAY=()
 
