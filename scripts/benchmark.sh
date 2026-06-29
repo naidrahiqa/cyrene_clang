@@ -15,7 +15,7 @@ KERNEL_SOURCE="${KERNEL_SOURCE:-}"
 RUNS="${RUNS:-3}"
 ARCH="${ARCH:-arm64}"
 
-log() { echo -e "\033[1;36m[Benchmark]\033[0m $*"; }
+log() { echo -e "\033[1;36m[Benchmark]\033[0m $*" >&2; }
 die() { echo -e "\033[1;31m[ERROR]\033[0m $*" >&2; exit 1; }
 
 mkdir -p "$BENCH_DIR"

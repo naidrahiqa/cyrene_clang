@@ -105,4 +105,19 @@ Sebelum menambah/menghapus item dari `LLVM_RUNTIMES`, cek:
 
 ---
 
+---
+
+## 🔗 Orchestration
+
+| Aspek | Detail |
+|-------|--------|
+| **Master Orchestrator** | `.opencode/AGENTS.md` — routing, workflows, event triggers |
+| **Skill ID** | `llvm-runtimes-fixer` |
+| **Triggers** | `build_failure_with_runtimes`, `cross_compile_error`, `cmake_config_failure` |
+| **Dependencies** | `master-reference` (known issues context), `compiler-build-optimizer` (build system) |
+| **Depended By** | `compiler-build-optimizer` (if cross-compilation detected) |
+| **Workflows** | `pr-review` (step 5 — conditional), `release-build` (step 4), `daily-build` (step 3) |
+| **Routing Rule** | Build log shows `cmake_path` / `LIBCXXABI_USE_LLVM_UNWINDER` / `unwind tables` → route to this skill |
+| **Error Signatures** | `cmake_path: command not found`, `LIBCXXABI_USE_LLVM_UNWINDER`, `doesn't support generation of unwind tables` |
+
 *Terjadi di: Build #65, #66 (2026-06-23)*
