@@ -1,4 +1,4 @@
-# CyreneClang
+# Cyrene Clang
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![GitHub Release](https://img.shields.io/github/v/release/naidrahiqa/cyrene_clang)](https://github.com/naidrahiqa/cyrene_clang/releases)
@@ -23,6 +23,32 @@ A custom LLVM/Clang toolchain optimized for Android kernel compilation. Built wi
 | **Auto-sync** | Weekly rebuild from LLVM `main` |
 | **Distribution** | GitHub Releases + `clang-version.txt` + `clang_notes.txt` manifests |
 | **Telegram notify** | Build status pushed to Telegram channel |
+
+## Benchmark
+
+Auto-generated benchmark comparing compile time across different LTO modes:
+
+![Cyrene Clang Benchmark](benchmark/chart.svg)
+
+<details>
+<summary>Raw Results (JSON)</summary>
+
+```json
+benchmark/results.json
+```
+
+</details>
+
+### Run Benchmark Locally
+
+```bash
+# Run benchmark with 5 iterations
+RUNS=5 bash scripts/benchmark.sh
+
+# Output:
+# - benchmark/results.json   (raw data)
+# - benchmark/chart.svg      (visualization)
+```
 
 ## Quick Start
 
@@ -168,7 +194,7 @@ make build  # or: bash scripts/build.sh
 | `LTO_MODE` | `Thin` | LTO mode: `Thin`, `Full`, or `Off` |
 | `ZSTD_LEVEL` | `19` | Zstd compression level (1-22) |
 | `JOBS` | auto | Parallel build jobs (auto-detected from RAM) |
-| `CLANG_VENDOR` | `CyreneClang` | Vendor string in clang version output |
+| `CLANG_VENDOR` | `Cyrene Clang` | Vendor string in clang version output |
 | `INSTALL_DIR` | `~/toolchains/cyrene` | Where to install the toolchain |
 
 ## Docker Build

@@ -1,0 +1,85 @@
+name: Check LLVM Update
+
+on:
+  schedule:
+    - cron: '0 8 * * *'  # Setiap hari jam 08:00 UTC (15:00 WIB)
+  workflow_dispatch:       # Manual trigger
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Get latest LLVM release
+        id: llvm
+        run: |
+          # Ambil tag terbaru dari LLVM yang formatnya llvmorg-XX.Y.Z
+          LATEST=$(gh api repos/llvm/llvm-project/tags --paginate \
+            -q '.[].name' | grep -E '^llvmorg-[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
+          
+          if [ -z "$LATEST" ]; then
+            echo "Could not fetch latest LLVM tag"
+            exit 1
+          fi
+          
+          echo "latest=$LATEST" >> $GITHUB_OUTPUT
+          echo "Latest LLVM release: $LATEST"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Get last built version
+        id: last
+        run: |
+          # Cek file yang berisi versi terakhir yang di-build
+          if [ -f ".llvm-version" ]; then
+            LAST=$(cat .llvm-version | tr -d '[:space:]')
+            echo "last=$LAST" >> $GITHUB_OUTPUT
+            echo "Last built version: $LAST"
+          else
+            echo "last=" >> $GITHUB_OUTPUT
+            echo "No previous build version found"
+          fi
+
+      - name: Compare versions
+        id: compare
+        run: |
+          LATEST="${{ steps.llvm.outputs.latest }}"
+          LAST="${{ steps.last.outputs.last }}"
+          
+          if [ "$LATEST" != "$LAST" ]; then
+            echo "New LLVM version available: $LATEST (was: ${LAST:-none})"
+            echo "should_build=true" >> $GITHUB_OUTPUT
+          else
+            echo "Already up to date: $LATEST"
+            echo "should_build=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Trigger build
+        if: steps.compare.outputs.should_build == 'true'
+        run: |
+          LATEST="${{ steps.llvm.outputs.latest }}"
+          
+          # Update version file
+          echo "$LATEST" > .llvm-version
+          
+          # Commit version update
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .llvm-version
+          git commit -m "chore: update LLVM version to $LATEST"
+          git push
+          
+          # Trigger build workflow via repository_dispatch
+          gh api repos/${{ github.repository }}/dispatches \
+            -f event_type='new-llvm-release' \
+            -f client_payload="{\"llvm_branch\": \"$LATEST\"}"
+          
+          echo "Build triggered for $LATEST"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: No update
+        if: steps.compare.outputs.should_build == 'false'
+        run: echo "No new LLVM release found. Skipping build."

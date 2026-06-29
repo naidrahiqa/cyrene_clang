@@ -1,8 +1,26 @@
 # Changelog
 
-All notable changes to CyreneClang will be documented in this file.
+All notable changes to Cyrene Clang will be documented in this file.
 
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
+
+## [22.1.0] - 2026-06-29
+
+### Changed
+
+- **Vendor string** — Renamed from "CyreneClang" to "Cyrene Clang" for better readability
+- **CI/CD schedule** — Removed fixed weekly cron schedule; build now only triggers on:
+  - Manual dispatch (`workflow_dispatch`)
+  - Push to `patches/`, `scripts/`, or `.github/workflows/`
+  - New LLVM release detection via `repository_dispatch`
+- **Auto-update checker** — New `check-llvm-update.yml` workflow runs daily to check for new LLVM releases and triggers build automatically
+
+### Added
+
+- **LLVM version tracking** — `.llvm-version` file tracks currently built LLVM version
+- **Repository dispatch** — Build workflow accepts `new-llvm-release` event type for automated builds
+
+---
 
 ## [22.1.0] - 2026-06-23
 

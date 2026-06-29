@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# CyreneClang — One-liner Installer
+# Cyrene Clang — One-liner Installer
 # Usage: bash <(wget -qO- https://raw.githubusercontent.com/naidrahiqa/cyrene_clang/main/get_clang.sh)
 set -euo pipefail
 
@@ -7,7 +7,7 @@ REPO="naidrahiqa/cyrene_clang"
 INSTALL_DIR="${CYRENE_DIR:-$HOME/toolchains/cyrene}"
 
 echo "========================================"
-echo " CyreneClang Installer"
+echo " Cyrene Clang Installer"
 echo "========================================"
 echo "Install directory: $INSTALL_DIR"
 echo ""

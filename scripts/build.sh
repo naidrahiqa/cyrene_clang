@@ -39,7 +39,7 @@ fi
 LLVM_TARGETS="AArch64;ARM"
 LLVM_PROJECTS="clang;lld;compiler-rt;polly"
 LLVM_RUNTIMES=""
-CLANG_VENDOR="${CLANG_VENDOR:-CyreneClang}"
+CLANG_VENDOR="${CLANG_VENDOR:-Cyrene Clang}"
 DEFAULT_TARGET_TRIPLE="${DEFAULT_TARGET_TRIPLE:-aarch64-linux-android}"
 
 # ─── Host Compiler Detection ──────────────────────────────────────────────

@@ -23,8 +23,12 @@ on:
         type: boolean
         default: true
 
-  schedule:
-    - cron: '0 0 * * 1'
+  repository_dispatch:
+    types: [new-llvm-release]
+    inputs:
+      llvm_branch:
+        description: 'New LLVM tag to build'
+        required: true
 
   push:
     paths:
@@ -265,11 +269,11 @@ jobs:
 
       # ── Release ──────────────────────────────────────────────────────────────
       - name: Set release stage
-        if: ${{ github.event.inputs.release == 'true' || github.event_name == 'schedule' || github.event_name == 'push' }}
+        if: ${{ github.event.inputs.release == 'true' || github.event_name == 'repository_dispatch' || github.event_name == 'push' }}
         run: echo "BUILD_STAGE=Publishing Release" >> "$GITHUB_ENV"
 
       - name: Publish GitHub Release
-        if: ${{ github.event.inputs.release == 'true' || github.event_name == 'schedule' || github.event_name == 'push' }}
+        if: ${{ github.event.inputs.release == 'true' || github.event_name == 'repository_dispatch' || github.event_name == 'push' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -295,11 +299,30 @@ jobs:
 
           gh release create "$RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
-            --title "CyreneClang $RELEASE_TAG" \
+            --title "Cyrene Clang $RELEASE_TAG" \
             --notes "$RELEASE_BODY" \
             --latest \
             "$TARBALL" \
             "${{ env.OUTPUT_DIR }}/clang-version.txt"
+
+      # ── Benchmark ─────────────────────────────────────────────────────────────
+      - name: Run benchmark
+        if: success()
+        run: |
+          chmod +x scripts/benchmark.sh scripts/generate-chart.py
+          bash scripts/benchmark.sh
+        env:
+          CYRENE_DIR: ${{ env.INSTALL_DIR }}
+          RUNS: 3
+
+      - name: Commit benchmark chart
+        if: success()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add benchmark/chart.svg benchmark/results.json
+          git diff --cached --quiet || git commit -m "chore: update benchmark chart [skip ci]"
+          git push
 
       # ── Notifications ────────────────────────────────────────────────────────
       # Note: failure notification is handled by build.sh cleanup trap
@@ -311,7 +334,7 @@ jobs:
           CLANG_VERSION: ${{ steps.package.outputs.CLANG_VERSION }}
 
       - name: Notify release
-        if: ${{ (github.event.inputs.release == 'true' || github.event_name == 'schedule') && success() }}
+        if: ${{ (github.event.inputs.release == 'true' || github.event_name == 'repository_dispatch') && success() }}
         run: bash scripts/notify.sh release
 
       - name: Notify build failure
