@@ -38,7 +38,7 @@ fi
 
 # ─── Detect toolchain version ───────────────────────────────────────────────
 CLANG_BIN="$CYRENE_DIR/bin/clang"
-CLANG_VERSION=$("$CLANG_BIN" --version | head -1 | grep -oP '\d+\.\d+\.\d+' | head -1)
+CLANG_VERSION=$("$CLANG_BIN" --version | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
 VENDOR=$("$CLANG_BIN" --version | head -1 | awk '{print $1}')
 log "Toolchain: $VENDOR $CLANG_VERSION"
 
@@ -95,8 +95,8 @@ run_benchmark() {
       make_args+=(LTO="$lto")
     fi
 
-    # Run defconfig + build (redirect to stderr so stdout stays clean for JSON)
-    make "${make_args[@]}" defconfig 2>/dev/null
+    # Run defconfig + build (redirect all output so stdout stays clean for JSON)
+    make "${make_args[@]}" defconfig &>/dev/null
     $time_cmd make "${make_args[@]}" >>"$log_file" 2>&1 || true
 
     end_time=$(date +%s%N)
@@ -112,7 +112,7 @@ run_benchmark() {
     # Extract peak memory from /usr/bin/time output
     local mem_kb=0
     if [[ -f "$log_file" ]]; then
-      mem_kb=$(grep -oP 'Maximum resident set size \(kbytes\): \K\d+' "$log_file" 2>/dev/null || echo 0)
+      mem_kb=$(grep -oE 'Maximum resident set size \(kbytes\): [0-9]+' "$log_file" 2>/dev/null | grep -oE '[0-9]+' | head -1 || echo 0)
     fi
 
     log "    Time: ${elapsed}ms | Size: $(( size / 1024 ))KB | Mem: ${mem_kb}KB"
@@ -145,23 +145,34 @@ log "Kernel: $KERNEL_SOURCE"
 log "Runs per config: $RUNS"
 echo "" >&2
 
-RESULTS_ARRAY=()
+# Run benchmarks and collect results
+RESULTS_JSON=""
+
+run_and_collect() {
+  local name="$1"
+  local lto="$2"
+  local result
+  result=$(run_benchmark "$name" "$CLANG_BIN" "$lto")
+  if [[ -n "$RESULTS_JSON" ]]; then
+    RESULTS_JSON="$RESULTS_JSON,$result"
+  else
+    RESULTS_JSON="$result"
+  fi
+}
 
 # Benchmark 1: No LTO (baseline)
-RESULTS_ARRAY+=("$(run_benchmark "no-lto" "$CLANG_BIN" "off")")
+run_and_collect "no-lto" "off"
 
 # Benchmark 2: ThinLTO
-RESULTS_ARRAY+=("$(run_benchmark "thin-lto" "$CLANG_BIN" "thin")")
+run_and_collect "thin-lto" "thin"
 
-# Build results JSON
-echo "[" > "$RESULTS"
-for i in "${!RESULTS_ARRAY[@]}"; do
-  echo "  ${RESULTS_ARRAY[$i]}" >> "$RESULTS"
-  if [[ $i -lt $((${#RESULTS_ARRAY[@]} - 1)) ]]; then
-    echo "," >> "$RESULTS"
-  fi
-done
-echo "]" >> "$RESULTS"
+# Write results JSON
+python3 -c "
+import json, sys
+results = json.loads('[$RESULTS_JSON]')
+with open('$RESULTS', 'w') as f:
+    json.dump(results, f, indent=2)
+" || die "Failed to generate valid results.json"
 
 log ""
 log "Results saved to: $RESULTS"
