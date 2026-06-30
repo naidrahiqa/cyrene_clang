@@ -14,11 +14,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - Push to `patches/`, `scripts/`, or `.github/workflows/`
   - New LLVM release detection via `repository_dispatch`
 - **Auto-update checker** — New `check-llvm-update.yml` workflow runs daily to check for new LLVM releases and triggers build automatically
+- **Benchmark chart** — Upgraded from single-metric (compile time only) to 3-panel chart showing compile time, binary size, and peak memory
 
 ### Added
 
 - **LLVM version tracking** — `.llvm-version` file tracks currently built LLVM version
 - **Repository dispatch** — Build workflow accepts `new-llvm-release` event type for automated builds
+- **Makefile benchmark targets** — `make bench`, `make bench-quick`, `make bench-full`
 
 ---
 

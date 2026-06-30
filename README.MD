@@ -26,7 +26,7 @@ A custom LLVM/Clang toolchain optimized for Android kernel compilation. Built wi
 
 ## Benchmark
 
-Auto-generated benchmark comparing compile time across different LTO modes:
+Auto-generated benchmark comparing **compile time**, **binary size**, and **peak memory** across different LTO modes:
 
 ![Cyrene Clang Benchmark](benchmark/chart.svg)
 
@@ -46,8 +46,8 @@ benchmark/results.json
 RUNS=5 bash scripts/benchmark.sh
 
 # Output:
-# - benchmark/results.json   (raw data)
-# - benchmark/chart.svg      (visualization)
+# - benchmark/results.json   (compile time, binary size, peak memory)
+# - benchmark/chart.svg      (3-panel visualization)
 ```
 
 ## Quick Start
@@ -143,8 +143,10 @@ cyrene-clang/
 │   └── TROUBLESHOOT.md
 ├── patches/                    # Custom LLVM patches
 ├── scripts/
+│   ├── benchmark.sh            # Benchmark runner (compile time, binary size, memory)
 │   ├── build.sh                # Main build script
 │   ├── check-compat.sh         # Compatibility validator
+│   ├── generate-chart.py       # SVG chart generator for benchmark results
 │   ├── install.sh              # Legacy installer
 │   ├── kernel-build.sh         # Unified kernel build (4.x-6.x)
 │   ├── kernel-lto.sh           # Kernel ThinLTO helper
@@ -180,6 +182,9 @@ make build  # or: bash scripts/build.sh
 | `make build-simple` | Quick build without PGO |
 | `make lint` | Run ShellCheck on scripts |
 | `make test` | Run build tests |
+| `make bench` | Run benchmark (compile time, binary size, memory) |
+| `make bench-quick` | Run benchmark with 1 iteration |
+| `make bench-full` | Run benchmark with 5 iterations |
 | `make docker-build` | Build in Docker |
 | `make clean` | Remove build artifacts |
 
@@ -196,6 +201,15 @@ make build  # or: bash scripts/build.sh
 | `JOBS` | auto | Parallel build jobs (auto-detected from RAM) |
 | `CLANG_VENDOR` | `Cyrene Clang` | Vendor string in clang version output |
 | `INSTALL_DIR` | `~/toolchains/cyrene` | Where to install the toolchain |
+
+### Benchmark Environment Variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `CYRENE_DIR` | `~/toolchains/cyrene` | Path to installed Cyrene Clang toolchain |
+| `KERNEL_SOURCE` | auto-clone | Kernel source directory for benchmark |
+| `RUNS` | `3` | Number of iterations per configuration |
+| `ARCH` | `arm64` | Target architecture |
 
 ## Docker Build
 

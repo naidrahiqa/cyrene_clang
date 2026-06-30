@@ -58,6 +58,19 @@ test: ## Run build tests
 test-compat: ## Run compatibility check
 	bash scripts/check-compat.sh
 
+# ─── Benchmark ──────────────────────────────────────────────────────────────
+.PHONY: bench
+bench: ## Run benchmark (compile time, binary size, memory)
+	bash scripts/benchmark.sh
+
+.PHONY: bench-quick
+bench-quick: ## Run benchmark with 1 iteration (fast)
+	RUNS=1 bash scripts/benchmark.sh
+
+.PHONY: bench-full
+bench-full: ## Run benchmark with 5 iterations (accurate)
+	RUNS=5 bash scripts/benchmark.sh
+
 # ─── Docker ──────────────────────────────────────────────────────────────────
 .PHONY: docker-build
 docker-build: ## Build in Docker container
