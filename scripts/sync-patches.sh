@@ -158,7 +158,8 @@ main() {
     
     local num
     num=$(next_number)
-    local patch_file="$PATCHES_DIR/$(printf '%04d' "$num")-${commit_hash:0:7}-${subject:0:50}.patch"
+    local patch_file
+    patch_file="$PATCHES_DIR/$(printf '%04d' "$num")-${commit_hash:0:7}-${subject:0:50}.patch"
     
     if git -C "$LLVM_DIR" format-patch -1 "$commit_hash" -o "$PATCHES_DIR" 2>/dev/null; then
       local gen_file

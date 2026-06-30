@@ -149,7 +149,8 @@ START_EPOCH=$(date +%s)
 declare -A STAGE_TIMES
 stage_timer_start() { STAGE_TIMES["$1"]=$(date +%s); }
 stage_timer_end() {
-  local key="$1" start="${STAGE_TIMES[$1]:-0}" end=$(date +%s)
+  local key="$1" start="${STAGE_TIMES[$1]:-0}"
+  local end; end=$(date +%s)
   local elapsed=$((end - start))
   STAGE_TIMES["$1"]=$elapsed
 }
@@ -904,7 +905,8 @@ main() {
     CLANG_VERSION=$("$INSTALL_DIR/bin/clang" --version | head -1 | grep -oP '\d+\.\d+\.\d+\S*' | head -1)
     BUILD_DURATION=$(build_duration)
     export CLANG_VERSION BUILD_DURATION
-    export CHANGELOG_FILE=$(gen_changelog)
+    local changelog_file; changelog_file=$(gen_changelog)
+    export CHANGELOG_FILE="$changelog_file"
 
     # Generate build metadata
     local metadata="$BUILD_DIR/build_metadata.json"

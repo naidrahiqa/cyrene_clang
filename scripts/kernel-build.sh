@@ -7,8 +7,6 @@ set -euo pipefail
 
 # ─── Configuration ────────────────────────────────────────────────────────────
 CYRENE_ROOT="${CYRENE_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
-MANIFEST="$CYRENE_ROOT/clang-version.txt"
-
 # Defaults
 KERNEL_DIR=""
 ARCH="${ARCH:-arm64}"

@@ -92,7 +92,7 @@ run_benchmark() {
 
     # Add LTO flags if enabled
     if [[ "$lto" != "off" ]]; then
-      make_args+=(LTO=$lto)
+      make_args+=(LTO="$lto")
     fi
 
     # Run defconfig + build (redirect to stderr so stdout stays clean for JSON)
@@ -148,10 +148,10 @@ echo "" >&2
 RESULTS_ARRAY=()
 
 # Benchmark 1: No LTO (baseline)
-RESULTS_ARRAY+=($(run_benchmark "no-lto" "$CLANG_BIN" "off"))
+RESULTS_ARRAY+=("$(run_benchmark "no-lto" "$CLANG_BIN" "off")")
 
 # Benchmark 2: ThinLTO
-RESULTS_ARRAY+=($(run_benchmark "thin-lto" "$CLANG_BIN" "thin"))
+RESULTS_ARRAY+=("$(run_benchmark "thin-lto" "$CLANG_BIN" "thin")")
 
 # Build results JSON
 echo "[" > "$RESULTS"
