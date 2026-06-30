@@ -1,0 +1,22 @@
+[
+  {
+    "name": "no-lto",
+    "version": "22.1.0",
+    "vendor": "Cyrene",
+    "lto": "off",
+    "avg_time_ms": 1832,
+    "avg_size_bytes": 0,
+    "peak_mem_kb": 53176,
+    "runs": 3
+  },
+  {
+    "name": "thin-lto",
+    "version": "22.1.0",
+    "vendor": "Cyrene",
+    "lto": "thin",
+    "avg_time_ms": 1303,
+    "avg_size_bytes": 0,
+    "peak_mem_kb": 53300,
+    "runs": 3
+  }
+]
