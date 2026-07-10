@@ -4,9 +4,9 @@
     "version": "22.1.0",
     "vendor": "Cyrene",
     "lto": "off",
-    "avg_time_ms": 1838,
+    "avg_time_ms": 1834,
     "avg_size_bytes": 0,
-    "peak_mem_kb": 53292,
+    "peak_mem_kb": 53360,
     "runs": 3
   },
   {
@@ -14,9 +14,9 @@
     "version": "22.1.0",
     "vendor": "Cyrene",
     "lto": "thin",
-    "avg_time_ms": 1306,
+    "avg_time_ms": 1308,
     "avg_size_bytes": 0,
-    "peak_mem_kb": 53360,
+    "peak_mem_kb": 53292,
     "runs": 3
   }
 ]
