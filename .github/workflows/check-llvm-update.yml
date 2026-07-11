@@ -5,6 +5,9 @@ on:
     - cron: '0 8 * * *'  # Setiap hari jam 08:00 UTC (15:00 WIB)
   workflow_dispatch:       # Manual trigger
 
+permissions:
+  contents: write
+
 jobs:
   check:
     runs-on: ubuntu-latest
