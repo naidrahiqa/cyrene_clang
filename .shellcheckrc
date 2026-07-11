@@ -1,0 +1,20 @@
+# ShellCheck configuration for Cyrene Clang
+# https://www.shellcheck.net/wiki/
+
+# Default shell dialect
+shell=bash
+
+# Enable all optional checks
+enable=all
+
+# Severity: style, info, warning, error
+severity=warning
+
+# Optional: Exclude specific codes
+# SC1091 - Not following sourced files (can't verify external files)
+# SC2034 - Variables appear unused (may be used in other files)
+# SC2154 - Variables are referenced but not assigned (may be env vars)
+disable=SC1091,SC2034,SC2154
+
+# Exclude directories
+# Note: This is handled by the lint command in Makefile

@@ -22,7 +22,7 @@ cyrene-clang/
 ├── docs/
 │   ├── feature-general.md     # Feature dev template
 │   └── feature-specific.md    # Feature prompts
-└── README.MD
+└── README.md
 ```
 
 ## Build Flags

@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "skills": {
+    "build-acceleration": {
+      "source": "mohitmishra786/low-level-dev-skills",
+      "sourceType": "github",
+      "skillPath": "skills/build-systems/build-acceleration/SKILL.md",
+      "computedHash": "3c1c9810054c332a084a705a52508e2bffb2b51b713421d9b6f4b6ba3f1fb569"
+    },
+    "ci-cd-and-automation": {
+      "source": "addyosmani/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/ci-cd-and-automation/SKILL.md",
+      "computedHash": "578b098a7d2352ccdac8b8abdc40eb6803538e81cf8382f138da6188a655087c"
+    },
+    "clang": {
+      "source": "mohitmishra786/low-level-dev-skills",
+      "sourceType": "github",
+      "skillPath": "skills/compilers/clang/SKILL.md",
+      "computedHash": "8ab6e99d2bdf0244aace28c4509cff1d6d153196185c472985ccb698e139e6e6"
+    },
+    "cmake": {
+      "source": "mohitmishra786/low-level-dev-skills",
+      "sourceType": "github",
+      "skillPath": "skills/build-systems/cmake/SKILL.md",
+      "computedHash": "934820a54d2e3a0be75b3b5cd219ff55a4f4e48904a324014e5c1cd6186844c2"
+    },
+    "compiler-optimizations-deep": {
+      "source": "mohitmishra786/low-level-dev-skills",
+      "sourceType": "github",
+      "skillPath": "skills/compiler-internals/compiler-optimizations-deep/SKILL.md",
+      "computedHash": "37480067b77bc118ebcc775769b0d96289bd66dcf901dcbf9cf1eb43f984d142"
+    },
+    "cross-gcc": {
+      "source": "mohitmishra786/low-level-dev-skills",
+      "sourceType": "github",
+      "skillPath": "skills/compilers/cross-gcc/SKILL.md",
+      "computedHash": "2b0956f2c93c30cc73ab14b52466a040c4d2178b0acec52b0e809c35779ee8b0"
+    },
+    "llvm": {
+      "source": "mohitmishra786/low-level-dev-skills",
+      "sourceType": "github",
+      "skillPath": "skills/compilers/llvm/SKILL.md",
+      "computedHash": "1f329978177c55407f1f546fe1bdef0b91c69125592770ced5fbfb4b213723d8"
+    },
+    "ninja": {
+      "source": "mohitmishra786/low-level-dev-skills",
+      "sourceType": "github",
+      "skillPath": "skills/build-systems/ninja/SKILL.md",
+      "computedHash": "907756fb857329c13a6ad9281febc33ceef14cf2bd8913e2b740810f92c6cf3f"
+    },
+    "pgo": {
+      "source": "mohitmishra786/low-level-dev-skills",
+      "sourceType": "github",
+      "skillPath": "skills/compilers/pgo/SKILL.md",
+      "computedHash": "e237d16657e3f6f820153852ff86df37e0971d9087d4498f14b03ea5c11a901d"
+    }
+  }
+}

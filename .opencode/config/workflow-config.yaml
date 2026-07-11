@@ -1,0 +1,390 @@
+# =============================================================================
+# Cyrene Clang — Workflow Configuration
+# =============================================================================
+# This file is companion to .opencode/AGENTS.md.
+# Controls skill behavior, workflow routing, notifications, and CI integration.
+# =============================================================================
+
+team:
+  name: "Cyrene Clang Development Team"
+  size: 3
+  project: "Cyrene Clang v22.1.0"
+  project_type: compiler
+  primary_languages: ["C", "Assembly", "Bash", "Python", "Makefile"]
+  ci_cd_platform: github-actions
+  workflow_stage: development
+
+  roles:
+    lead:
+      name: "Technical Lead"
+      members: []
+      skills: [compiler-build-optimizer, security-auditor, master-reference, planning]
+    reviewer:
+      name: "Code Reviewer"
+      members: []
+      skills: [universal-audit, security-auditor, refactoring-engine, debugging, planning]
+    devops:
+      name: "Build Engineer"
+      members: []
+      skills: [compiler-build-optimizer, llvm-runtimes-fixer, debugging]
+
+# ---------------------------------------------------------------------------
+# Skill Defaults
+# ---------------------------------------------------------------------------
+skills:
+  timeout_default: 300
+  retry_default: 2
+  parallel_limit: 4
+  runtime_warnings: true
+  auto_fix_enabled: false
+  strict_mode_default: false
+
+  compiler-build-optimizer:
+    timeout: 3600
+    retry: 1
+    memory_threshold_mb: 4096
+
+  security-auditor:
+    timeout: 600
+    retry: 3
+    strict_mode_excludes: ["node_modules", "build", "llvm-project", ".git"]
+
+  universal-audit:
+    timeout: 600
+    phases: [structure, documentation, security, error-handling, performance, maintainability]
+
+  debugging:
+    timeout: 300
+    log_lines: 200
+    known_issues_source: "skills/llvm-runtimes/SKILL.MD"
+
+  llvm-runtimes-fixer:
+    timeout: 300
+    error_signatures:
+      - "cmake_path: command not found"
+      - "LIBCXXABI_USE_LLVM_UNWINDER"
+      - "doesn't support generation of unwind tables"
+    fix: "LLVM_RUNTIMES=\"\""
+
+  refactoring-engine:
+    timeout: 300
+    severity_threshold: medium
+
+# ---------------------------------------------------------------------------
+# Workflow Definitions
+# ---------------------------------------------------------------------------
+workflows:
+  pr-review:
+    enabled: true
+    strict_mode: false
+    halt_on: [critical, high]
+    notify_channels: [github, telegram]
+    auto_approve: false
+    timeout: 600
+
+    steps:
+      - id: build-check
+        skill: compiler-build-optimizer
+        condition: always
+        on_failure: halt
+        parallel_with: [security-check, audit-check]
+      - id: security-check
+        skill: security-auditor
+        condition: always
+        on_failure: halt
+        parallel_with: [build-check, audit-check]
+      - id: audit-check
+        skill: universal-audit
+        condition: always
+        on_failure: halt
+        parallel_with: [build-check, security-check]
+      - id: refactor-check
+        skill: refactoring-engine
+        condition: on_success
+        on_failure: notify_only
+      - id: report
+        skill: report-generator
+        condition: always
+        on_failure: notify_only
+
+  release-build:
+    enabled: true
+    strict_mode: true
+    halt_on: [critical, high, medium]
+    notify_channels: [github, telegram, email]
+    artifacts_retention_days: 90
+    timeout: 7200
+
+    steps:
+      - id: full-security
+        skill: security-auditor
+        condition: always
+        on_failure: halt
+        strict_mode: true
+      - id: full-build
+        skill: compiler-build-optimizer
+        condition: on_success
+        on_failure: halt
+        pgo: true
+        thinlto: true
+        bolt: true
+      - id: runtimes-check
+        skill: llvm-runtimes-fixer
+        condition: always
+        on_failure: halt
+      - id: benchmark
+        skill: compiler-build-optimizer
+        condition: on_success
+        on_failure: notify_only
+        check: CHK-005
+      - id: package
+        skill: package
+        condition: on_success
+        on_failure: halt
+      - id: release-notes
+        skill: documentation-generator
+        condition: on_success
+        on_failure: notify_only
+      - id: publish
+        skill: release-publisher
+        condition: on_success
+        on_failure: halt
+
+  daily-build:
+    enabled: true
+    schedule: "0 3 * * *"
+    notify_on_failure: true
+    notify_channels: [telegram]
+    timeout: 1800
+
+    steps:
+      - id: quick-build
+        skill: compiler-build-optimizer
+        condition: always
+        on_failure: notify_only
+        checks: [CHK-001, CHK-002, CHK-003, CHK-004]
+      - id: quick-security
+        skill: security-auditor
+        condition: always
+        on_failure: notify_only
+        quick_scan: true
+      - id: runtimes-quick
+        skill: llvm-runtimes-fixer
+        condition: always
+        on_failure: notify_only
+      - id: report
+        skill: report-generator
+        condition: always
+
+  llvm-update-check:
+    enabled: true
+    schedule: "0 6 * * *"
+    notify_on_new_version: true
+    notify_channels: [telegram, github-issue]
+    timeout: 300
+
+    steps:
+      - id: version-check
+        skill: compiler-build-optimizer
+        condition: always
+        check: CHK-002
+      - id: impact-assessment
+        skill: planning
+        condition: on_success
+      - id: report
+        skill: report-generator
+        condition: always
+
+  full-audit:
+    enabled: true
+    schedule: "0 6 * * 0"
+    notify_channels: [github, telegram]
+    timeout: 1800
+
+    steps:
+      - id: deep-audit
+        skill: universal-audit
+        condition: always
+        phases: [structure, security, performance, maintainability]
+      - id: deep-security
+        skill: security-auditor
+        condition: always
+        strict_mode: true
+      - id: tech-debt
+        skill: refactoring-engine
+        condition: always
+      - id: aggregate
+        skill: report-generator
+        condition: always
+
+# ---------------------------------------------------------------------------
+# Event Routing
+# ---------------------------------------------------------------------------
+triggers:
+  session_start:
+    - skill: master-reference
+      priority: mandatory
+
+  push_to_main:
+    - skills: [compiler-build-optimizer, security-auditor]
+      parallel: true
+      on_failure: halt
+    - route_on_build_fail: debugging
+
+  pr_opened:
+    - skills: [compiler-build-optimizer, universal-audit, security-auditor]
+      parallel: true
+      on_failure: halt
+    - skills: [refactoring-engine]
+      parallel: true
+      on_failure: notify_only
+
+  tag_created:
+    - pattern: "v*"
+      skills: [compiler-build-optimizer, security-auditor, llvm-runtimes-fixer]
+      on_failure: halt
+
+  build_failure:
+    - route: debugging
+      context: [compiler-build-optimizer, llvm-runtimes-fixer]
+      on_failure: escalate_to_lead
+
+  dependency_update:
+    - route: security-auditor
+      strict_mode: true
+      on_failure: create_issue
+
+# ---------------------------------------------------------------------------
+# Context-Based Routing Rules
+# ---------------------------------------------------------------------------
+context_routing:
+  - pattern: "scripts/*.sh"
+    route: [debugging, compiler-build-optimizer]
+    description: "Shell script changes — syntax + build impact check"
+
+  - pattern: "config/*"
+    route: [compiler-build-optimizer]
+    description: "Build config changes — validate compilation"
+
+  - pattern: "Makefile"
+    route: [compiler-build-optimizer]
+    description: "Build system changes — full validation"
+
+  - pattern: "Dockerfile"
+    route: [compiler-build-optimizer]
+    description: "Container changes — CHK-006"
+
+  - pattern: ".github/workflows/*"
+    route: [planning, compiler-build-optimizer]
+    description: "CI/CD changes — audit workflow logic"
+
+  - pattern: ".opencode/skills/*"
+    route: [master-reference]
+    description: "Skill file changes — update registry"
+
+  - pattern: "patches/*"
+    route: [llvm-runtimes-fixer]
+    description: "Patch changes — compatibility check"
+
+  - pattern: ".llvm-version"
+    route: [compiler-build-optimizer]
+    description: "LLVM version change — CHK-002 full validation"
+
+# ---------------------------------------------------------------------------
+# Notifications
+# ---------------------------------------------------------------------------
+notifications:
+  critical_issues:
+    channels: [telegram, github-issue, email]
+    recipients:
+      telegram: "@technical_lead"
+      email: ["lead@cyrene-clang.dev"]
+    message_template: |
+      🚨 CRITICAL: {issue_count} issue(s) found in {workflow}
+      Project: Cyrene Clang v22.1.0
+      Findings: {findings_summary}
+      Action required immediately.
+
+  build_failure:
+    channels: [telegram]
+    recipients:
+      telegram: "@technical_lead"
+    message_template: |
+      ❌ Build Failed: {workflow}
+      Error: {error_summary}
+      Logs: {log_url}
+
+  summary_report:
+    channels: [github-comment, telegram]
+    frequency: per-workflow
+    message_template: |
+      📋 {workflow} Summary
+      Status: {status}
+      Duration: {duration}s
+      Findings: {findings_count}
+      Details: {report_url}
+
+  security_alert:
+    channels: [github-issue, telegram]
+    severity: [critical, high]
+    message_template: |
+      🔒 Security Finding: {severity}
+      Type: {finding_type}
+      File: {file_path}:{line}
+      Description: {description}
+      Fix: {fix_suggestion}
+
+  daily_summary:
+    channels: [telegram]
+    schedule: "08:00 UTC"
+    include_metrics: true
+    message_template: |
+      📊 Daily Build Report — {date}
+      Build: {build_status}
+      Security: {security_findings} findings
+      Runtimes: {runtimes_status}
+      Uptime: {uptime_days}d
+
+# ---------------------------------------------------------------------------
+# Persistence
+# ---------------------------------------------------------------------------
+persistence:
+  reports_dir: "build/reports/"
+  logs_dir: "build/logs/"
+  artifacts_dir: "build/artifacts/"
+  metrics_db: ".opencode/metrics.db"
+  session_log: ".opencode/session-log.md"
+  retention_days: 90
+
+# ---------------------------------------------------------------------------
+# Performance Thresholds
+# ---------------------------------------------------------------------------
+performance:
+  regression_threshold_percent: 10
+  benchmark_comparison_baseline: "latest-release"
+  memory_alert_mb: 8192
+  build_time_alert_minutes: 60
+  cache_hit_threshold_percent: 80
+
+# ---------------------------------------------------------------------------
+# CI/CD Integration
+# ---------------------------------------------------------------------------
+ci:
+  platform: github-actions
+  workflows:
+    build: ".github/workflows/build.yml"
+    lint: ".github/workflows/lint.yml"
+    check-llvm: ".github/workflows/check-llvm-update.yml"
+    sync-patches: ".github/workflows/sync-patches.yml"
+  auto_cancel_duplicates: true
+  concurrency_limit: 2
+
+# ---------------------------------------------------------------------------
+# Agent Settings
+# ---------------------------------------------------------------------------
+agent:
+  default_model: deepseek-v4-flash-free
+  max_tokens_per_step: 4096
+  session_timeout_minutes: 30
+  validate_skills_on_start: true
+  log_level: info
