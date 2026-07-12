@@ -4,7 +4,29 @@
 [![GitHub Release](https://img.shields.io/github/v/release/naidrahiqa/cyrene_clang)](https://github.com/naidrahiqa/cyrene_clang/releases)
 [![Build Status](https://github.com/naidrahiqa/cyrene_clang/actions/workflows/build.yml/badge.svg)](https://github.com/naidrahiqa/cyrene_clang/actions/workflows/build.yml)
 
-A custom LLVM/Clang toolchain optimized for Android kernel compilation. Built with PGO, ThinLTO, and BOLT for maximum performance.
+A prebuilt LLVM/Clang toolchain optimized for Android kernel compilation. Supports LLVM 14 through 22+.
+
+## What is This?
+
+Cyrene Clang is a **ready-to-use** Clang toolchain for building Android kernels. Download, extract, and compile — no need to build LLVM yourself.
+
+**Key optimizations:**
+- PGO (Profile-Guided Optimization) for faster compilation
+- ThinLTO for leaner, faster binaries
+- BOLT for 5-15% additional speedup
+- Auto-detects RAM to scale build parallelism
+
+## Who Is This For?
+
+- **Kernel developers** — Need a fast, optimized Clang for building kernels
+- **ROM developers** — Want a reliable toolchain for custom Android ROMs
+- **Anyone** — Who needs a prebuilt Clang with Android kernel support
+
+## Need Help?
+
+- **Found a bug?** — [Open an issue](https://github.com/naidrahiqa/cyrene_clang/issues)
+- **Want to fix something?** — [Open a PR](https://github.com/naidrahiqa/cyrene_clang/pulls)
+- **Want to build your own?** — [Fork the repo](https://github.com/naidrahiqa/cyrene_clang/fork)
 
 ## Why Cyrene Clang?
 
@@ -39,9 +61,30 @@ A custom LLVM/Clang toolchain optimized for Android kernel compilation. Built wi
 
 ## Benchmark
 
-Auto-generated benchmark comparing **compile time**, **binary size**, and **peak memory** across different LTO modes:
+Performance comparison of Cyrene Clang against stock Clang, measuring real-world kernel compilation workloads.
+
+### What's Measured
+
+| Metric | Description | Why It Matters |
+|--------|-------------|----------------|
+| **Compile Time** | Time to compile a full kernel (e.g., msm-5.15) | Faster builds = quicker iteration |
+| **Binary Size** | Size of the compiled kernel image | Smaller = faster boot, less storage |
+| **Peak Memory** | Maximum RAM usage during compilation | Determines if you can build on your machine |
+
+### Cyrene Clang vs Stock Clang
+
+Benchmark runs automatically on every release using `scripts/benchmark.sh`:
 
 ![Cyrene Clang Benchmark](benchmark/chart.svg)
+
+<details>
+<summary>Understanding the Charts</summary>
+
+- **Compile Time (ms)** — Lower is better. Cyrene Clang with PGO+BOLT typically shows 10-20% faster compilation.
+- **Binary Size** — Lower is better. LTO optimizes dead code elimination.
+- **Peak Memory (GB)** — Lower is better. Memory-aware job scaling helps here.
+
+</details>
 
 <details>
 <summary>Raw Results (JSON)</summary>
@@ -55,12 +98,18 @@ benchmark/results.json
 ### Run Benchmark Locally
 
 ```bash
-# Run benchmark with 5 iterations
+# Quick benchmark (1 iteration)
+make bench-quick
+
+# Standard benchmark (3 iterations)
+make bench
+
+# Full benchmark (5 iterations, more accurate)
 RUNS=5 bash scripts/benchmark.sh
 
 # Output:
-# - benchmark/results.json   (compile time, binary size, peak memory)
-# - benchmark/chart.svg      (3-panel visualization)
+# - benchmark/results.json   (raw data)
+# - benchmark/chart.svg      (visualization)
 ```
 
 ## Quick Start
