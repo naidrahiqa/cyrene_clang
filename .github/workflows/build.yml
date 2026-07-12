@@ -4,8 +4,8 @@ on:
   workflow_dispatch:
     inputs:
       llvm_branch:
-        description: 'LLVM branch or tag (e.g. llvmorg-22.1.0, main)'
-        default: 'llvmorg-22.1.0'
+        description: 'LLVM branch or tag (e.g. llvmorg-22.1.8, main)'
+        default: 'llvmorg-22.1.8'
         required: true
       enable_pgo:
         description: 'Enable 2-stage PGO build'
@@ -44,7 +44,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  LLVM_BRANCH: ${{ github.event.inputs.llvm_branch || github.event.client_payload.llvm_branch || 'llvmorg-22.1.0' }}
+  LLVM_BRANCH: ${{ github.event.inputs.llvm_branch || github.event.client_payload.llvm_branch || 'llvmorg-22.1.8' }}
   ENABLE_PGO: ${{ github.event.inputs.enable_pgo || 'false' }}
   ENABLE_BOLT: ${{ github.event.inputs.enable_bolt || 'false' }}
   PGO_WORKLOAD: ${{ github.event.inputs.pgo_workload || 'sqlite' }}
