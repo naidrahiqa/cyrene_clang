@@ -4,16 +4,16 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
-# Variables
+# Variables - read from .llvm-version for consistency
 VERSION    := $(shell cat VERSION 2>/dev/null || echo "unknown")
+LLVM_BRANCH := $(shell cat .llvm-version 2>/dev/null || echo "llvmorg-22.1.8")
 BUILD_DIR  := build
 INSTALL_DIR := $(HOME)/toolchains/cyrene
-LLVM_BRANCH := llvmorg-22.1.0
 
 # ─── Help ────────────────────────────────────────────────────────────────────
 .PHONY: help
 help: ## Show this help
-	@echo "CyreneClang $(VERSION)"
+	@echo "CyreneClang $(VERSION) (LLVM $(LLVM_BRANCH))"
 	@echo ""
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
@@ -30,6 +30,18 @@ build-simple: ## Build without PGO (faster, for testing)
 .PHONY: build-pgo
 build-pgo: ## Build with PGO only (no BOLT)
 	ENABLE_BOLT=false bash scripts/build.sh
+
+.PHONY: build-version
+build-version: ## Build specific LLVM version (LLVM_VERSION=17.0.6)
+	@if [ -z "$(LLVM_VERSION)" ]; then \
+		echo "Usage: make build-version LLVM_VERSION=17.0.6"; \
+		echo "Examples:"; \
+		echo "  make build-version LLVM_VERSION=17.0.6"; \
+		echo "  make build-version LLVM_VERSION=18.1.8"; \
+		echo "  make build-version LLVM_VERSION=19.1.0"; \
+		exit 1; \
+	fi
+	LLVM_BRANCH=llvmorg-$(LLVM_VERSION) bash scripts/build.sh
 
 # ─── Quality ─────────────────────────────────────────────────────────────────
 .PHONY: lint
@@ -108,4 +120,4 @@ package: ## Package toolchain for release
 
 .PHONY: version
 version: ## Show current version
-	@echo "$(VERSION)"
+	@echo "CyreneClang $(VERSION) (LLVM $(LLVM_BRANCH))"
