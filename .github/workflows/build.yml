@@ -213,6 +213,15 @@ jobs:
           ccache --set-config=max_size=2.0G
           ccache -s
 
+      - name: Cache LLVM source
+        uses: actions/cache@v5
+        with:
+          path: ${{ github.workspace }}/llvm-project
+          key: llvm-source-${{ env.LLVM_BRANCH }}-${{ hashFiles('patches/*.patch') }}
+          restore-keys: |
+            llvm-source-${{ env.LLVM_BRANCH }}-
+            llvm-source-
+
       # ── Build ────────────────────────────────────────────────────────────────
       - name: Make scripts executable
         run: chmod +x scripts/*.sh
@@ -278,12 +287,19 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           TARBALL="${{ steps.package.outputs.TARBALL }}"
+          
+          # Generate changelog
+          CHANGELOG=$(bash scripts/generate-changelog.sh "" "$RELEASE_TAG" 2>/dev/null || echo "Automated build for $RELEASE_TAG")
+          
           RELEASE_BODY="## CyreneClang — Automated Build
 
           **LLVM Branch**: \`${{ env.LLVM_BRANCH }}\`
           **PGO**: ${{ env.ENABLE_PGO }}
           **LTO**: ThinLTO
           **Targets**: AArch64, ARM, X86
+
+          ### What's Changed
+          $CHANGELOG
 
           ### Integration
           \`\`\`bash
@@ -314,6 +330,10 @@ jobs:
         env:
           CYRENE_DIR: ${{ env.INSTALL_DIR }}
           RUNS: 3
+
+      - name: Check performance regression
+        if: success()
+        run: bash scripts/check-regression.sh 5 || true
 
       - name: Commit benchmark chart
         if: success()

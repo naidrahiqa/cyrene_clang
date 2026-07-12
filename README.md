@@ -3,6 +3,8 @@
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![GitHub Release](https://img.shields.io/github/v/release/naidrahiqa/cyrene_clang)](https://github.com/naidrahiqa/cyrene_clang/releases)
 [![Build Status](https://github.com/naidrahiqa/cyrene_clang/actions/workflows/build.yml/badge.svg)](https://github.com/naidrahiqa/cyrene_clang/actions/workflows/build.yml)
+[![LLVM Version](https://img.shields.io/badge/LLVM-22.1.8-orange.svg)](https://github.com/llvm/llvm-project)
+[![Build Time](https://img.shields.io/badge/Build%20Time-%3E4h%2030m-blue.svg)](https://github.com/naidrahiqa/cyrene_clang/actions/workflows/build.yml)
 
 A prebuilt LLVM/Clang toolchain optimized for Android kernel compilation. Supports LLVM 14 through 22+.
 
