@@ -6,6 +6,19 @@
 
 A custom LLVM/Clang toolchain optimized for Android kernel compilation. Built with PGO, ThinLTO, and BOLT for maximum performance.
 
+## Why Cyrene Clang?
+
+| Feature | Stock Clang | Cyrene Clang |
+|---------|:-----------:|:------------:|
+| PGO | - | 2-stage IR-based |
+| ThinLTO | - | Applied to toolchain |
+| BOLT | - | 5-15% additional speedup |
+| Auto-detect RAM | - | Scales parallel jobs |
+| Kernel presets | - | 4.14 - 6.x |
+| LTO modes | - | Thin / Full / Off |
+| Benchmark | - | Auto-generated charts |
+| Telegram notify | - | Build status push |
+
 ## Features
 
 | Feature | Details |
@@ -20,7 +33,7 @@ A custom LLVM/Clang toolchain optimized for Android kernel compilation. Built wi
 | **Build profiling** | Per-stage timing in `build_metadata.json` |
 | **Targets** | AArch64, ARM (32-bit), X86 (host tools) |
 | **Kernel support** | 4.14 through 6.x (GKI + legacy trees) |
-| **Auto-sync** | Weekly rebuild from LLVM `main` |
+| **LLVM versions** | Supports building from LLVM 14+ (stable and main) |
 | **Distribution** | GitHub Releases + `clang-version.txt` + `clang_notes.txt` manifests |
 | **Telegram notify** | Build status pushed to Telegram channel |
 
@@ -122,6 +135,7 @@ cyrene-clang/
 ├── .github/
 │   ├── workflows/
 │   │   ├── build.yml           # CI/CD pipeline
+│   │   ├── check-llvm-update.yml  # Auto-check new LLVM releases
 │   │   ├── lint.yml            # ShellCheck linting
 │   │   └── sync-patches.yml    # Auto-sync from LLVM stable
 │   ├── ISSUE_TEMPLATE/
@@ -192,7 +206,7 @@ make build  # or: bash scripts/build.sh
 
 | Variable | Default | Description |
 |---|---|---|
-| `LLVM_BRANCH` | `llvmorg-22.1.0` | LLVM branch or tag to build |
+| `LLVM_BRANCH` | `llvmorg-22.1.8` | LLVM branch or tag to build (supports 14+) |
 | `ENABLE_PGO` | `true` | Enable 2-stage PGO build |
 | `ENABLE_BOLT` | `true` | Enable BOLT post-build optimization |
 | `PGO_WORKLOAD` | `sqlite` | PGO workload: `sqlite` (fast) or `kernel` (accurate) |
@@ -210,6 +224,32 @@ make build  # or: bash scripts/build.sh
 | `KERNEL_SOURCE` | auto-clone | Kernel source directory for benchmark |
 | `RUNS` | `3` | Number of iterations per configuration |
 | `ARCH` | `arm64` | Target architecture |
+
+## Building Older LLVM Versions
+
+Cyrene Clang supports building LLVM 14 and newer:
+
+```bash
+# Build LLVM 15
+LLVM_BRANCH=llvmorg-15.0.7 make build
+
+# Build LLVM 16
+LLVM_BRANCH=llvmorg-16.0.6 make build
+
+# Build LLVM 17 (latest 17.x)
+LLVM_BRANCH=llvmorg-17.0.6 make build
+
+# Build LLVM 18
+LLVM_BRANCH=llvmorg-18.1.8 make build
+
+# Build LLVM 19 (latest stable)
+LLVM_BRANCH=llvmorg-19.1.0 make build
+
+# Build LLVM 22 (latest release)
+LLVM_BRANCH=llvmorg-22.1.8 make build
+```
+
+**Note:** Older LLVM versions (< 15) may not support all features (PGO, BOLT). Use `make build-simple` for those versions.
 
 ## Docker Build
 
@@ -242,6 +282,33 @@ make test-compat
 # Or directly
 bash scripts/check-compat.sh ~/kernel/msm-5.15
 ```
+
+## FAQ
+
+**Q: LTO causes kernel build failure?**
+A: Use `--lto=off` for kernels < 5.10 or `--lto=thin` for newer kernels.
+
+**Q: How to verify installation?**
+A: Run `clang --version` — should show `Cyrene Clang` vendor string.
+
+**Q: Can I build for older kernels (4.14)?**
+A: Yes. Use `--lto=off` and the kernel presets in `config/kernels/`.
+
+**Q: Which LLVM version should I use?**
+A: For best compatibility, use LLVM 15+. For latest features, use LLVM 18+.
+
+**Q: How to enable Telegram notifications?**
+A: Set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` in repository secrets.
+
+## Contributing
+
+See [CONTRIBUTING.md](docs/CONTRIBUTING.md).
+
+Quick start:
+1. Fork the repo
+2. Create feature branch
+3. Run `make lint` before commit
+4. Open PR
 
 ## Documentation
 
