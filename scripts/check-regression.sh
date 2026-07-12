@@ -29,17 +29,17 @@ BASELINE_SIZE=$(jq -r '.binary_size_bytes // 0' "$BASELINE_FILE" 2>/dev/null || 
 CURRENT_MEM=$(jq -r '.peak_memory_bytes // 0' "$RESULTS_FILE" 2>/dev/null || echo "0")
 BASELINE_MEM=$(jq -r '.peak_memory_bytes // 0' "$BASELINE_FILE" 2>/dev/null || echo "0")
 
-# Calculate regression percentage
+# Calculate regression percentage using awk (no bc dependency)
 calc_regression() {
   local current="$1"
   local baseline="$2"
   
-  if [[ "$baseline" == "0" || "$baseline" == "" ]]; then
+  if [[ "$baseline" == "0" || "$baseline" == "" || "$baseline" == "null" ]]; then
     echo "0"
     return
   fi
   
-  echo "scale=2; (($current - $baseline) / $baseline) * 100" | bc 2>/dev/null || echo "0"
+  awk "BEGIN {printf \"%.2f\", (($current - $baseline) / $baseline) * 100}"
 }
 
 COMPILE_REG=$(calc_regression "$CURRENT_COMPILE" "$BASELINE_COMPILE")
@@ -61,10 +61,16 @@ check_metric() {
   local baseline="$3"
   local regression="$4"
   
-  if (( $(echo "$regression > $THRESHOLD" | bc -l 2>/dev/null || echo 0) )); then
+  # Check if regression exceeds threshold using awk
+  local exceeds
+  exceeds=$(awk "BEGIN {print ($regression > $THRESHOLD) ? 1 : 0}")
+  local is_better
+  is_better=$(awk "BEGIN {print ($regression < -$THRESHOLD) ? 1 : 0}")
+  
+  if [[ "$exceeds" == "1" ]]; then
     echo "❌ $name              $current         $baseline        +${regression}%"
     has_regression=true
-  elif (( $(echo "$regression < -$THRESHOLD" | bc -l 2>/dev/null || echo 0) )); then
+  elif [[ "$is_better" == "1" ]]; then
     echo "✅ $name              $current         $baseline        ${regression}%"
   else
     echo "✅ $name              $current         $baseline        ${regression}%"
