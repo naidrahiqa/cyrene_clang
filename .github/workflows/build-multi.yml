@@ -35,7 +35,7 @@ jobs:
         run: |
           VERSIONS="${{ github.event.inputs.versions }}"
           # Convert comma-separated to JSON array
-          MATRIX=$(echo "$VERSIONS" | jq -R 'split(",") | map(select(length > 0))')
+          MATRIX=$(echo "$VERSIONS" | jq -Rc 'split(",") | map(select(length > 0))')
           echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
           echo "Versions: $MATRIX"
 
