@@ -146,47 +146,48 @@ $(fmt_section)
     PGO_STR="✅ Enabled"
     [[ "$ENABLE_PGO" == "false" ]] && PGO_STR="❌ Disabled"
 
+    CYRENE_VER="${RELEASE_TAG#cyrene-}"
+    [[ -z "$CYRENE_VER" ]] && CYRENE_VER="$CLANG_VERSION"
+    RELEASE_URL="https://github.com/$REPO/releases/tag/$RELEASE_TAG"
+
     MSG="$(fmt_header "Cyrene Clang Build #$RUN_NUMBER SUCCEEDED")"
     MSG="$MSG
-✅ <b>Build completed successfully!</b>
-⏱ Duration: <code>$BUILD_DURATION</code>"
+📅 $(date -u +%d/%m/%y) | ⏱ <code>$BUILD_DURATION</code>"
+    MSG="$MSG
+🔧 <b>$CLANG_VERSION</b> | 🎯 <code>$TARGETS</code>"
+    MSG="$MSG
+👤 By:@$(echo "$REPO" | cut -d/ -f2)"
     MSG="$MSG
 $(fmt_section)
-🔧 <b>Toolchain Info:</b>"
+📋 <b>Changes:</b>"
     MSG="$MSG
-🔧 Clang: $CLANG_VERSION"
+• LLVM <code>$LLVM_BRANCH</code>"
     MSG="$MSG
-$(fmt_cyrene_link "$CYRENE_COMMIT")"
+• PGO: $PGO_STR"
     MSG="$MSG
-$(fmt_llvm_link "$LLVM_COMMIT")"
+• ThinLTO: $LTO_MODE"
     MSG="$MSG
-⚙️ PGO: $PGO_STR | 🎯 LTO: $LTO_MODE"
-    MSG="$MSG
-📌 Branch: <code>$LLVM_BRANCH</code>"
-    MSG="$MSG
-📆 Date: $BUILD_DATE"
-
-    MSG="$MSG
+• Patches: <code>$PATCH_COUNT</code> applied"
+    if [[ -n "$TARBALL_NAME" ]]; then
+      MSG="$MSG
 $(fmt_section)
-📦 <b>Release Package:</b>"
-    MSG="$MSG
-📦 Tag: ${RELEASE_TAG:-none}"
-    MSG="$MSG
-📦 File: $TARBALL_NAME"
-    MSG="$MSG
-📦 Size: $PACKAGE_SIZE"
+📦 <b>Package:</b>"
+      MSG="$MSG
+📦 File: <code>$TARBALL_NAME</code>"
+      MSG="$MSG
+📦 Size: <code>$PACKAGE_SIZE</code>"
+      MSG="$MSG
+🏷 Tag: <code>${RELEASE_TAG:-none}</code>"
+    fi
 
-    RELEASE_URL="https://github.com/$REPO/releases/tag/$RELEASE_TAG"
     if [[ -n "$RELEASE_TAG" ]]; then
       MSG="$MSG
 $(fmt_section)
-🚀 <b>Quick Download:</b>
-<pre><code>wget $RELEASE_URL/download/$RELEASE_TAG/$TARBALL_NAME</code></pre>"
-      MSG="$MSG
-🔗 <a href=\"$RELEASE_URL\">View Release</a>"
+📥 <b>Download</b> (<a href=\"$RELEASE_URL\">GitHub Release</a>)"
     fi
 
     MSG="$MSG
+$(fmt_section)
 🔗 <a href=\"$RUN_URL\">View Run #$RUN_NUMBER</a>"
     send_msg "$MSG"
 
@@ -196,7 +197,7 @@ $(fmt_section)
 $CHANGELOG_TEXT"
       CHANGELOG_MSG="$CHANGELOG_MSG
 $(fmt_section)
-🔗 <a href=\"https://github.com/$REPO/releases/tag/$RELEASE_TAG\">View Full Changelog</a>"
+🔗 <a href=\"$RELEASE_URL\">View Release</a>"
       send_msg "$CHANGELOG_MSG"
     fi
     ;;
@@ -341,6 +342,69 @@ $(fmt_section)
     ;;
 
   release)
+    RELEASE_URL="https://github.com/$REPO/releases/tag/$RELEASE_TAG"
+    CYRENE_VER="${RELEASE_TAG#cyrene-}"
+    PGO_STR="✅ Enabled"
+    [[ "$ENABLE_PGO" == "false" ]] && PGO_STR="❌ Disabled"
+    BOLT_STR="✅"
+    [[ "$ENABLE_BOLT" != "true" ]] && BOLT_STR="❌"
+
+    MSG="$(fmt_header "Cyrene Clang $CYRENE_VER Released")"
+    MSG="$MSG
+📅 Update:$(date -u +%d/%m/%y)"
+    MSG="$MSG
+🔧 Version: <code>$CYRENE_VER</code>"
+    MSG="$MSG
+🎯 Target: <code>$TARGETS</code>"
+    MSG="$MSG
+👤 By:@$(echo "$REPO" | cut -d/ -f2)"
+    MSG="$MSG
+$(fmt_section)
+📋 <b>Changelog:</b>"
+    MSG="$MSG
+• LLVM <code>$LLVM_BRANCH</code>"
+    MSG="$MSG
+• PGO: $PGO_STR"
+    MSG="$MSG
+• ThinLTO: $LTO_MODE"
+    MSG="$MSG
+• BOLT: $BOLT_STR"
+    MSG="$MSG
+• Polly Loop Optimizer"
+    MSG="$MSG
+• Kernel 4.14+ to 6.x+ Support"
+    MSG="$MSG
+• ThinLTO for Kernel 5.12+"
+    MSG="$MSG
+• Bundled libc++/libc++abi"
+    MSG="$MSG
+• and others"
+    MSG="$MSG
+$(fmt_section)
+📦 <b>Download</b> (<a href=\"$RELEASE_URL\">GitHub Release</a>)"
+    MSG="$MSG
+📦 File: <code>$TARBALL_NAME</code>"
+    MSG="$MSG
+📦 Size: <code>$PACKAGE_SIZE</code>"
+    MSG="$MSG
+$(fmt_section)
+🙏 <b>Credits:</b>"
+    MSG="$MSG
+@llvm-project — LLVM/Clang source"
+    MSG="$MSG
+@AOSP — Android kernel compatibility"
+    MSG="$MSG
+$(fmt_section)
+📢 <b>Follow my Channel</b> (<a href=\"https://t.me/naidrahiqa\">@naidrahiqa</a>)"
+    MSG="$MSG
+💬 <b>Join support group</b> (<a href=\"https://t.me/bwabwabwa_discus\">@bwabwabwa_discus</a>)"
+    MSG="$MSG
+$(fmt_section)
+#CyreneClang #LLVM #Clang #Toolchain #AndroidKernel #AArch64 #ARM #ThinLTO #PGO #BOLT"
+    send_msg "$MSG"
+    ;;
+
+  release_old)
     RELEASE_URL="https://github.com/$REPO/releases/tag/$RELEASE_TAG"
     MSG="$(fmt_header "Cyrene Clang $RELEASE_TAG Released")"
     MSG="$MSG

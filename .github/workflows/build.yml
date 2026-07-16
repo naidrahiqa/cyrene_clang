@@ -357,6 +357,10 @@ jobs:
       - name: Notify release
         if: ${{ (github.event.inputs.release == 'true' || github.event_name == 'repository_dispatch') && success() }}
         run: bash scripts/notify.sh release
+        env:
+          RELEASE_TAG: ${{ env.RELEASE_TAG }}
+          TARBALL_NAME: ${{ steps.package.outputs.TARBALL_NAME }}
+          PACKAGE_SIZE: ${{ env.PACKAGE_SIZE }}
 
       - name: Notify build failure
         if: failure()

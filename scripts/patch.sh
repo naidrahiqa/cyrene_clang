@@ -94,6 +94,11 @@ for patch in "$PATCHES_DIR"/*.patch; do
   # Attempt 3: known fallback fixups
   log "    ⚠ --3way failed, trying built-in fallback ..."
   if [[ "$patch_name" == *"nsan"*"gcc"* || "$patch_name" == *"nsan"*"compat"* ]]; then
+    # NSan was added in LLVM 19; skip for older versions
+    if [[ ! -d "$LLVM_DIR/compiler-rt/lib/nsan" ]]; then
+      log "    ⏭ NSan not present in this LLVM version, skipping patch $patch_name"
+      continue
+    fi
     if apply_nsan_gcc14_fallback; then
       continue
     fi
